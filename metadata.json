@@ -1,0 +1,5 @@
+{
+  "name": "Contextual Contact Manager",
+  "description": "Visualize and explore your contact network through mutual connections, geographic locations, and temporal history using an interactive graph.",
+  "requestFramePermissions": []
+}
