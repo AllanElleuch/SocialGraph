@@ -42,12 +42,14 @@ class _MapViewState extends State<MapView> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final countries = _extractCountries(data);
+        if (!mounted) return;
         setState(() {
           _geoData = countries;
           _loading = false;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
     }
   }

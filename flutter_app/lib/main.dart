@@ -216,80 +216,100 @@ class _HomePageState extends State<HomePage> {
       left: 0,
       right: 0,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        // Offset by the status bar / notch height so the header never sits
+        // under the Dynamic Island.
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: MediaQuery.of(context).padding.top + 12,
+          bottom: 24,
+        ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             // Logo
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF6366f1),
-                        shape: BoxShape.circle,
+            Flexible(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF6366f1),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'CONTEXTUAL CONTACTS',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
+                      const SizedBox(width: 8),
+                      const Flexible(
+                        child: Text(
+                          'CONTEXTUAL CONTACTS',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.5,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'GRAPH-BASED NETWORK EXPLORER',
-                  style: TextStyle(
-                    color: Color(0xFF6b7280),
-                    fontSize: 10,
-                    letterSpacing: 3,
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  const Text(
+                    'GRAPH-BASED NETWORK EXPLORER',
+                    style: TextStyle(
+                      color: Color(0xFF6b7280),
+                      fontSize: 10,
+                      letterSpacing: 3,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
 
+            const SizedBox(width: 12),
+
             // Search + Info
-            Row(
-              children: [
-                Container(
-                  width: 256,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1a1a1a),
-                    border: Border.all(color: const Color(0xFF333333)),
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  child: TextField(
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                    style: const TextStyle(
-                        color: Color(0xFFe2e8f0), fontSize: 14),
-                    decoration: const InputDecoration(
-                      hintText: 'Search network...',
-                      hintStyle: TextStyle(color: Color(0xFF6b7280)),
-                      prefixIcon: Icon(Icons.search,
-                          color: Color(0xFF6b7280), size: 16),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(vertical: 10),
+            Flexible(
+              flex: 4,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1a1a1a),
+                        border: Border.all(color: const Color(0xFF333333)),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: TextField(
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                        style: const TextStyle(
+                            color: Color(0xFFe2e8f0), fontSize: 14),
+                        decoration: const InputDecoration(
+                          hintText: 'Search network...',
+                          hintStyle: TextStyle(color: Color(0xFF6b7280)),
+                          prefixIcon: Icon(Icons.search,
+                              color: Color(0xFF6b7280), size: 16),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.info_outline,
-                      color: Color(0xFF6b7280), size: 20),
-                ),
-              ],
+                  IconButton(
+                    onPressed: () {},
+                    icon: const Icon(Icons.info_outline,
+                        color: Color(0xFF6b7280), size: 20),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -299,7 +319,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildLegend() {
     return Positioned(
-      bottom: 32,
+      // Sit above the bottom controls bar (≈52px tall at bottom: 32) so the
+      // two never overlap on narrow screens.
+      bottom: 104,
       left: 32,
       child: IgnorePointer(
         child: Container(

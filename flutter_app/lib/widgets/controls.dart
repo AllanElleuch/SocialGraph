@@ -85,15 +85,19 @@ class Controls extends StatelessWidget {
               size: 18,
               color: isActive ? Colors.white : const Color(0xFF9ca3af),
             ),
-            const SizedBox(width: 8),
-            Text(
-              btn.label,
-              style: TextStyle(
-                color: isActive ? Colors.white : const Color(0xFF9ca3af),
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+            // Show the label only for the active pivot to keep the bar
+            // within narrow screens.
+            if (isActive) ...[
+              const SizedBox(width: 8),
+              Text(
+                btn.label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
