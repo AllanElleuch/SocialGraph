@@ -1,6 +1,6 @@
 import React from 'react';
-import { Contact } from '../types';
-import { X, MapPin, Calendar, Users, Tag, Mail, Briefcase, Gift, Edit2, Clock } from 'lucide-react';
+import { Contact, getFullName } from '../types';
+import { X, MapPin, Calendar, Users, Tag, Mail, Briefcase, Gift, Edit2, Clock, Home } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ContactCardProps {
@@ -21,10 +21,10 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, onClose, onEdit }) =
         className="fixed top-4 right-4 bottom-4 w-80 bg-[#1a1a1a] border border-[#333] rounded-2xl shadow-2xl p-6 overflow-y-auto z-50 flex flex-col"
       >
         <div className="flex justify-between items-start mb-6">
-          <h2 className="text-2xl font-bold text-white leading-tight">{contact.name}</h2>
+          <h2 className="text-2xl font-bold text-white leading-tight">{getFullName(contact)}</h2>
           <div className="flex gap-2">
             {onEdit && (
-              <button 
+              <button
                 onClick={() => onEdit(contact)}
                 className="p-1 hover:bg-[#333] rounded-full transition-colors text-gray-400"
                 title="Edit Contact"
@@ -32,7 +32,7 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, onClose, onEdit }) =
                 <Edit2 size={18} />
               </button>
             )}
-            <button 
+            <button
               onClick={onClose}
               className="p-1 hover:bg-[#333] rounded-full transition-colors text-gray-400"
             >
@@ -60,6 +60,13 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, onClose, onEdit }) =
             <div className="flex items-center gap-3 text-gray-400">
               <Gift size={18} className="text-indigo-400" />
               <span className="text-sm">Born on {new Date(contact.birthday).toLocaleDateString()}</span>
+            </div>
+          )}
+
+          {contact.homeAddress && (
+            <div className="flex items-center gap-3 text-gray-400">
+              <Home size={18} className="text-indigo-400" />
+              <span className="text-sm">{contact.homeAddress}</span>
             </div>
           )}
 

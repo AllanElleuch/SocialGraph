@@ -1,6 +1,9 @@
 export interface Contact {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
+  workplace?: string;
+  homeAddress?: string;
   tags: string[];
   locationMet: string;
   lat?: number;
@@ -13,8 +16,12 @@ export interface Contact {
   address?: string;
   addressLat?: number;
   addressLng?: number;
-  workplace?: string;
   createdAt?: string; // ISO string
+}
+
+/** Full display name for a contact, tolerant of missing parts. */
+export function getFullName(contact: Pick<Contact, 'firstName' | 'lastName'>): string {
+  return [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
 }
 
 export interface GraphNode extends d3.SimulationNodeDatum {

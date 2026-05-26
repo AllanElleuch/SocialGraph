@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Contact, PivotType } from './types';
+import { Contact, PivotType, getFullName } from './types';
 import Graph from './components/Graph';
 import LocationMap from './components/LocationMap';
 import ContactCard from './components/ContactCard';
@@ -68,9 +68,11 @@ export default function App() {
     }
   };
 
-  const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
+  const query = searchQuery.toLowerCase();
+  const filteredContacts = contacts.filter(c =>
+    getFullName(c).toLowerCase().includes(query) ||
+    (c.workplace?.toLowerCase().includes(query) ?? false) ||
+    (c.tags ?? []).some(t => t.toLowerCase().includes(query))
   );
 
   return (

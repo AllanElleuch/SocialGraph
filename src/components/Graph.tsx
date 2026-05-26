@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import { Contact, GraphNode, GraphLink, PivotType } from '../types';
+import { Contact, GraphNode, GraphLink, PivotType, getFullName } from '../types';
 
 interface GraphProps {
   contacts: Contact[];
@@ -102,7 +102,7 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
     // Graph Logic for Mutual and Timeline
     const nodes: GraphNode[] = contacts.map(c => ({
       id: c.id,
-      name: c.name,
+      name: getFullName(c),
       type: 'contact',
       data: c
     }));

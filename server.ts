@@ -16,7 +16,10 @@ async function startServer() {
     const initialData = [
       {
         id: "1",
-        name: "Alice Johnson",
+        firstName: "Alice",
+        lastName: "Johnson",
+        workplace: "Stripe",
+        homeAddress: "123 Market St, San Francisco, CA",
         tags: ["Tech", "Design"],
         locationMet: "San Francisco",
         lat: 37.7749,
@@ -28,7 +31,10 @@ async function startServer() {
       },
       {
         id: "2",
-        name: "Bob Smith",
+        firstName: "Bob",
+        lastName: "Smith",
+        workplace: "Google",
+        homeAddress: "456 Broadway, New York, NY",
         tags: ["Engineering"],
         locationMet: "New York",
         lat: 40.7128,
@@ -40,7 +46,10 @@ async function startServer() {
       },
       {
         id: "3",
-        name: "Charlie Brown",
+        firstName: "Charlie",
+        lastName: "Brown",
+        workplace: "Figma",
+        homeAddress: "789 Mission St, San Francisco, CA",
         tags: ["Product"],
         locationMet: "San Francisco",
         lat: 37.7749,
@@ -85,14 +94,14 @@ async function startServer() {
     if (index === -1) {
       return res.status(404).json({ error: "Contact not found" });
     }
-    
+
     const oldContact = data[index];
     const updatedContact = { ...oldContact, ...req.body };
-    
+
     // Handle bidirectional connections
     const oldConns = oldContact.connections || [];
     const newConns = updatedContact.connections || [];
-    
+
     // Remove from contacts that are no longer connected
     oldConns.forEach((connId: string) => {
       if (!newConns.includes(connId)) {
@@ -102,7 +111,7 @@ async function startServer() {
         }
       }
     });
-    
+
     // Add to new connections
     newConns.forEach((connId: string) => {
       if (!oldConns.includes(connId)) {
@@ -116,6 +125,17 @@ async function startServer() {
     data[index] = updatedContact;
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
     res.json(updatedContact);
+  });
+
+  app.delete("/api/contacts/:id", (req, res) => {
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+    const filtered = data.filter((c: any) => c.id !== req.params.id);
+    if (filtered.length === data.length) {
+      res.status(404).json({ error: "Contact not found" });
+      return;
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(filtered, null, 2));
+    res.status(204).send();
   });
 
   // Vite middleware for development
