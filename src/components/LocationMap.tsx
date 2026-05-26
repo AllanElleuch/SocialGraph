@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Contact } from '../types';
+import { Contact, getFullName } from '../types';
 import { Crosshair } from 'lucide-react';
 
 // Fix Leaflet's default icon path issues
@@ -109,7 +109,7 @@ const LocationMap: React.FC<LocationMapProps> = ({ contacts, onSelectContact }) 
                 }}
               >
                 <Popup>
-                  <div className="font-semibold">{contact.name}</div>
+                  <div className="font-semibold">{getFullName(contact)}</div>
                   <div className="text-sm text-gray-600">Met at: {contact.locationMet}</div>
                 </Popup>
               </Marker>
@@ -127,7 +127,7 @@ const LocationMap: React.FC<LocationMapProps> = ({ contacts, onSelectContact }) 
                 }}
               >
                 <Popup>
-                  <div className="font-semibold">{contact.name}'s Address</div>
+                  <div className="font-semibold">{getFullName(contact)}'s Address</div>
                   <div className="text-sm text-gray-600">{contact.address}</div>
                 </Popup>
               </Marker>

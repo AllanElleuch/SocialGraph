@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "flutter:web": "cd flutter_app && flutter run -d chrome",
+    "flutter:web:build": "cd flutter_app && flutter build web",
+    "flutter:ios": "cd flutter_app && flutter run -d C8BE201E-0656-4074-B758-B4E998D9A785",
+    "flutter:ios:build": "cd flutter_app && flutter build ios --simulator"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

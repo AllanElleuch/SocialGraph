@@ -66,7 +66,7 @@ class _TimelineViewState extends State<TimelineView>
       child: Padding(
         padding: const EdgeInsets.only(top: 100, bottom: 100),
         child: ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
           itemCount: groupKeys.length,
           itemBuilder: (context, index) {
             final key = groupKeys[index];
@@ -228,6 +228,7 @@ class _TimelineViewState extends State<TimelineView>
             const SizedBox(width: 12),
             // Name + tags
             Expanded(
+              flex: 2,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -238,6 +239,8 @@ class _TimelineViewState extends State<TimelineView>
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (contact.tags.isNotEmpty)
                     Padding(
@@ -252,29 +255,34 @@ class _TimelineViewState extends State<TimelineView>
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                  // Location met
+                  if (contact.locationMet.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.place_outlined,
+                              size: 12, color: Color(0xFF6b7280)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              contact.locationMet,
+                              style: const TextStyle(
+                                color: Color(0xFF6b7280),
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
-            // Location met
-            if (contact.locationMet.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.place_outlined,
-                        size: 12, color: Color(0xFF6b7280)),
-                    const SizedBox(width: 4),
-                    Text(
-                      contact.locationMet,
-                      style: const TextStyle(
-                        color: Color(0xFF6b7280),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(width: 8),
             // Date
             Text(
               _relativeDate(contact.dateMet),

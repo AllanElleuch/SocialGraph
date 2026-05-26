@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Tag, MapPin, Calendar, Link as LinkIcon, Search, Crosshair } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact } from '../types';
+import { Contact, getFullName } from '../types';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -88,7 +88,8 @@ const getTagColor = (tag: string) => {
 };
 
 const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAdd, existingContacts, initialContact }) => {
-  const [name, setName] = useState(initialContact?.name || '');
+  const [firstName, setFirstName] = useState(initialContact?.firstName || '');
+  const [lastName, setLastName] = useState(initialContact?.lastName || '');
   const [tagInput, setTagInput] = useState('');
   const [tagsList, setTagsList] = useState<string[]>(initialContact?.tags || []);
   const [location, setLocation] = useState(initialContact?.locationMet || '');
@@ -115,7 +116,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
 
   useEffect(() => {
     if (isOpen && initialContact) {
-      setName(initialContact.name);
+      setFirstName(initialContact.firstName || '');
+      setLastName(initialContact.lastName || '');
       setTagsList(initialContact.tags);
       setLocation(initialContact.locationMet);
       setLat(initialContact.lat);
@@ -129,7 +131,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
       setWorkplace(initialContact.workplace || '');
       setSelectedConnections(initialContact.connections || []);
     } else if (isOpen && !initialContact) {
-      setName('');
+      setFirstName('');
+      setLastName('');
       setTagInput('');
       setTagsList([]);
       setLocation('');
@@ -286,7 +289,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
       }
 
       await onAdd({
-        name,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         tags: tagsList,
         locationMet: location,
         dateMet: new Date(date).toISOString(),
@@ -303,7 +307,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
       } as any);
       
       // Reset form
-      setName('');
+      setFirstName('');
+      setLastName('');
       setTagInput('');
       setTagsList([]);
       setLocation('');
@@ -330,8 +335,8 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
     );
   };
 
-  const filteredContacts = existingContacts.filter(c => 
-    c.name.toLowerCase().includes(connectionSearch.toLowerCase()) &&
+  const filteredContacts = existingContacts.filter(c =>
+    getFullName(c).toLowerCase().includes(connectionSearch.toLowerCase()) &&
     (!initialContact || c.id !== initialContact.id)
   );
 
@@ -354,18 +359,31 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
 
             <form onSubmit={handleSubmit} className="flex flex-col overflow-hidden">
               <div className="p-6 space-y-4 overflow-y-auto">
-                <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                  <User size={14} /> Name
-                </label>
-                <input
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-indigo-500 transition-all"
-                  placeholder="e.g. John Doe"
-                />
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <User size={14} /> First Name
+                    </label>
+                    <input
+                      required
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-indigo-500 transition-all"
+                      placeholder="e.g. John"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      Last Name
+                    </label>
+                    <input
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-indigo-500 transition-all"
+                      placeholder="e.g. Doe"
+                    />
+                  </div>
+                </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
@@ -617,7 +635,7 @@ const AddContactModal: React.FC<AddContactModalProps> = ({ isOpen, onClose, onAd
                           : 'text-gray-400 hover:bg-[#1a1a1a]'
                       }`}
                     >
-                      {c.name}
+                      {getFullName(c)}
                       {selectedConnections.includes(c.id) && <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
                     </button>
                   ))}
