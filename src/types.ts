@@ -8,6 +8,13 @@ export interface Contact {
   dateMet: string; // ISO string
   connections: string[]; // Array of contact IDs
   lastInteraction?: string; // ISO string
+  birthday?: string; // ISO string
+  email?: string;
+  address?: string;
+  addressLat?: number;
+  addressLng?: number;
+  workplace?: string;
+  createdAt?: string; // ISO string
 }
 
 export interface GraphNode extends d3.SimulationNodeDatum {

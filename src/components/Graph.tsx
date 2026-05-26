@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
-import * as topojson from 'topojson-client';
 import { Contact, GraphNode, GraphLink, PivotType } from '../types';
 
 interface GraphProps {
@@ -63,10 +62,32 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
 
     const g = svg.append('g');
 
+    let timePositionScale: d3.ScaleTime<number, number, never>;
+    let xAxisGroup: d3.Selection<SVGGElement, unknown, null, undefined>;
+    let axis: d3.Axis<Date | d3.NumberValue>;
+    let simulation: d3.Simulation<GraphNode, undefined>;
+
     const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 8])
+      .scaleExtent([0.1, 100])
       .on('zoom', (event) => {
-        g.attr('transform', event.transform);
+        if (pivot === 'time' && timePositionScale && xAxisGroup && simulation) {
+          const transform = event.transform;
+          const xTransform = d3.zoomIdentity.translate(transform.x, 0).scale(transform.k);
+          const newScale = xTransform.rescaleX(timePositionScale);
+          
+          axis.scale(newScale);
+          xAxisGroup.call(axis);
+          xAxisGroup.selectAll('text')
+            .attr('fill', '#94a3b8')
+            .style('font-size', '12px')
+            .style('font-family', 'Inter, sans-serif');
+          xAxisGroup.selectAll('.time-axis path, .time-axis line').attr('stroke', '#475569');
+
+          simulation.force('x', d3.forceX<GraphNode>(d => newScale(new Date(d.data.dateMet))).strength(1));
+          simulation.alpha(0.3).restart();
+        } else {
+          g.attr('transform', event.transform);
+        }
       });
 
     svg.call(zoom);
@@ -77,58 +98,6 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
         d3.min(contacts, (c: Contact) => new Date(c.dateMet).getTime()) || 0,
         d3.max(contacts, (c: Contact) => new Date(c.dateMet).getTime()) || Date.now()
       ]);
-
-    if (pivot === 'location') {
-      // Draw Map
-      const projection = d3.geoMercator()
-        .scale(width / 2 / Math.PI)
-        .translate([width / 2, height / 2]);
-
-      const path = d3.geoPath().projection(projection);
-
-      // Fetch world map data
-      d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then((worldData: any) => {
-        const countries = topojson.feature(worldData, worldData.objects.countries) as any;
-
-        g.append('g')
-          .selectAll('path')
-          .data(countries.features)
-          .join('path')
-          .attr('d', path as any)
-          .attr('fill', '#1a1a1a')
-          .attr('stroke', '#333')
-          .attr('stroke-width', 0.5);
-
-        // Place contacts on map
-        const nodes = g.append('g')
-          .selectAll('g')
-          .data(contacts)
-          .join('g')
-          .attr('transform', (d: Contact) => {
-            const coords = projection([d.lng || 0, d.lat || 0]);
-            return coords ? `translate(${coords[0]},${coords[1]})` : 'translate(0,0)';
-          })
-          .attr('cursor', 'pointer')
-          .on('click', (event, d: Contact) => onSelectContact(d));
-
-        nodes.append('circle')
-          .attr('r', 6)
-          .attr('fill', '#6366f1')
-          .attr('stroke', '#fff')
-          .attr('stroke-width', 1)
-          .attr('class', 'animate-pulse');
-
-        nodes.append('text')
-          .text((d: Contact) => d.name)
-          .attr('x', 10)
-          .attr('y', 4)
-          .attr('fill', '#94a3b8')
-          .style('font-size', '10px')
-          .style('font-family', 'Inter, sans-serif');
-      });
-
-      return;
-    }
 
     // Graph Logic for Mutual and Timeline
     const nodes: GraphNode[] = contacts.map(c => ({
@@ -155,11 +124,44 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
       }
     }
 
-    const simulation = d3.forceSimulation<GraphNode>(nodes)
-      .force('link', d3.forceLink<GraphNode, GraphLink>(links).id(d => d.id).distance(150))
-      .force('charge', d3.forceManyBody().strength(-400))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(60));
+    if (pivot === 'mutual') {
+      simulation = d3.forceSimulation<GraphNode>(nodes)
+        .force('link', d3.forceLink<GraphNode, GraphLink>(links).id(d => d.id).distance(150))
+        .force('charge', d3.forceManyBody().strength(-400))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(60));
+    } else if (pivot === 'time') {
+      const minDate = d3.min(contacts, (c: Contact) => new Date(c.dateMet)) || new Date();
+      const maxDate = d3.max(contacts, (c: Contact) => new Date(c.dateMet)) || new Date();
+      
+      if (minDate.getTime() === maxDate.getTime()) {
+        minDate.setMonth(minDate.getMonth() - 1);
+        maxDate.setMonth(maxDate.getMonth() + 1);
+      }
+
+      timePositionScale = d3.scaleTime()
+        .domain([minDate, maxDate])
+        .range([100, width - 100]);
+
+      axis = d3.axisBottom(timePositionScale).ticks(width > 600 ? 10 : 5);
+      xAxisGroup = g.append('g')
+        .attr('transform', `translate(0, ${height / 2 + 100})`)
+        .attr('class', 'time-axis')
+        .call(axis);
+        
+      xAxisGroup.selectAll('text')
+        .attr('fill', '#94a3b8')
+        .style('font-size', '12px')
+        .style('font-family', 'Inter, sans-serif');
+      
+      xAxisGroup.selectAll('.time-axis path, .time-axis line').attr('stroke', '#475569');
+
+      simulation = d3.forceSimulation<GraphNode>(nodes)
+        .force('link', d3.forceLink<GraphNode, GraphLink>(links).id(d => d.id).strength(0))
+        .force('x', d3.forceX<GraphNode>(d => timePositionScale(new Date(d.data.dateMet))).strength(1))
+        .force('y', d3.forceY<GraphNode>(height / 2).strength(0.05))
+        .force('collision', d3.forceCollide().radius(40));
+    }
 
     const link = g.append('g')
       .attr('stroke', '#444')
@@ -169,6 +171,19 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
       .join('line')
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', d => d.type === 'time' ? '4,4' : null);
+
+    const linkText = g.append('g')
+      .attr('class', 'link-labels')
+      .selectAll('text')
+      .data(links)
+      .join('text')
+      .attr('fill', '#64748b')
+      .attr('font-size', '9px')
+      .attr('text-anchor', 'middle')
+      .attr('dy', -4)
+      .style('pointer-events', 'none')
+      .style('font-family', 'Inter, sans-serif')
+      .text(d => d.type === 'time' ? 'Met after' : 'Connected');
 
     const node = g.append('g')
       .selectAll('g')
@@ -208,6 +223,23 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
         .attr('x2', d => (d.target as any).x)
         .attr('y2', d => (d.target as any).y);
 
+      linkText
+        .attr('x', d => ((d.source as any).x + (d.target as any).x) / 2)
+        .attr('y', d => ((d.source as any).y + (d.target as any).y) / 2)
+        .attr('transform', d => {
+          const x1 = (d.source as any).x;
+          const y1 = (d.source as any).y;
+          const x2 = (d.target as any).x;
+          const y2 = (d.target as any).y;
+          const cx = (x1 + x2) / 2;
+          const cy = (y1 + y2) / 2;
+          let angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+          if (angle > 90 || angle < -90) {
+            angle += 180;
+          }
+          return `rotate(${angle}, ${cx}, ${cy})`;
+        });
+
       node
         .attr('transform', d => `translate(${d.x},${d.y})`);
     });
@@ -233,11 +265,13 @@ const Graph: React.FC<GraphProps> = ({ contacts, pivot, onSelectContact }) => {
   }, [contacts, pivot, onSelectContact]);
 
   return (
-    <svg 
-      ref={svgRef} 
-      className="w-full h-full bg-[#0a0a0a]"
-      style={{ touchAction: 'none' }}
-    />
+    <div className="relative w-full h-full">
+      <svg 
+        ref={svgRef} 
+        className="w-full h-full bg-[#0a0a0a]"
+        style={{ touchAction: 'none' }}
+      />
+    </div>
   );
 };
 
