@@ -1,9 +1,49 @@
+/// Types of logged interactions with a contact.
+enum InteractionType { call, text, email, meeting, note }
+
+/// A single timestamped interaction with a contact (call, text, meeting, …).
+class InteractionEvent {
+  final String id;
+  final DateTime date;
+  final InteractionType type;
+  final String note;
+
+  const InteractionEvent({
+    required this.id,
+    required this.date,
+    required this.type,
+    this.note = '',
+  });
+
+  factory InteractionEvent.fromJson(Map<String, dynamic> json) {
+    return InteractionEvent(
+      id: json['id'] as String,
+      date: DateTime.parse(json['date'] as String),
+      type: InteractionType.values.firstWhere(
+        (t) => t.name == json['type'],
+        orElse: () => InteractionType.note,
+      ),
+      note: (json['note'] as String?) ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': date.toIso8601String(),
+        'type': type.name,
+        'note': note,
+      };
+}
+
 class Contact {
   final String id;
   final String firstName;
   final String lastName;
   final String workplace;
   final String homeAddress;
+  final String phone;
+  final String email;
+  final String notes;
   final List<String> tags;
   final String locationMet;
   final double? lat;
@@ -12,12 +52,24 @@ class Contact {
   final List<String> connections;
   final DateTime? lastInteraction;
 
+  /// Chronological log of interactions, newest first.
+  final List<InteractionEvent> interactions;
+
+  /// Desired days between reach-outs; null means "use the tag default / off".
+  final int? reminderCadenceDays;
+
+  /// Last local modification time, used for sync reconciliation (last-write-wins).
+  final DateTime? updatedAt;
+
   Contact({
     required this.id,
     required this.firstName,
     required this.lastName,
     this.workplace = '',
     this.homeAddress = '',
+    this.phone = '',
+    this.email = '',
+    this.notes = '',
     required this.tags,
     required this.locationMet,
     this.lat,
@@ -25,9 +77,56 @@ class Contact {
     required this.dateMet,
     required this.connections,
     this.lastInteraction,
+    this.interactions = const [],
+    this.reminderCadenceDays,
+    this.updatedAt,
   });
 
   String get displayName => '$firstName $lastName'.trim();
+
+  /// Returns a copy with the given fields replaced. Pass a field to change it;
+  /// omit it to keep the current value.
+  Contact copyWith({
+    String? id,
+    String? firstName,
+    String? lastName,
+    String? workplace,
+    String? homeAddress,
+    String? phone,
+    String? email,
+    String? notes,
+    List<String>? tags,
+    String? locationMet,
+    double? lat,
+    double? lng,
+    DateTime? dateMet,
+    List<String>? connections,
+    DateTime? lastInteraction,
+    List<InteractionEvent>? interactions,
+    int? reminderCadenceDays,
+    DateTime? updatedAt,
+  }) {
+    return Contact(
+      id: id ?? this.id,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      workplace: workplace ?? this.workplace,
+      homeAddress: homeAddress ?? this.homeAddress,
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      notes: notes ?? this.notes,
+      tags: tags ?? this.tags,
+      locationMet: locationMet ?? this.locationMet,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      dateMet: dateMet ?? this.dateMet,
+      connections: connections ?? this.connections,
+      lastInteraction: lastInteraction ?? this.lastInteraction,
+      interactions: interactions ?? this.interactions,
+      reminderCadenceDays: reminderCadenceDays ?? this.reminderCadenceDays,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 
   factory Contact.fromJson(Map<String, dynamic> json) {
     String firstName;
@@ -53,6 +152,9 @@ class Contact {
       lastName: lastName,
       workplace: (json['workplace'] as String?) ?? '',
       homeAddress: (json['homeAddress'] as String?) ?? '',
+      phone: (json['phone'] as String?) ?? '',
+      email: (json['email'] as String?) ?? '',
+      notes: (json['notes'] as String?) ?? '',
       tags: List<String>.from(json['tags'] ?? []),
       locationMet: json['locationMet'] as String,
       lat: (json['lat'] as num?)?.toDouble(),
@@ -61,6 +163,14 @@ class Contact {
       connections: List<String>.from(json['connections'] ?? []),
       lastInteraction: json['lastInteraction'] != null
           ? DateTime.parse(json['lastInteraction'] as String)
+          : null,
+      interactions: (json['interactions'] as List<dynamic>?)
+              ?.map((e) => InteractionEvent.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      reminderCadenceDays: (json['reminderCadenceDays'] as num?)?.toInt(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
           : null,
     );
   }
@@ -72,6 +182,9 @@ class Contact {
       'lastName': lastName,
       'workplace': workplace,
       'homeAddress': homeAddress,
+      'phone': phone,
+      'email': email,
+      'notes': notes,
       'tags': tags,
       'locationMet': locationMet,
       'lat': lat,
@@ -79,6 +192,9 @@ class Contact {
       'dateMet': dateMet.toIso8601String(),
       'connections': connections,
       'lastInteraction': lastInteraction?.toIso8601String(),
+      'interactions': interactions.map((e) => e.toJson()).toList(),
+      'reminderCadenceDays': reminderCadenceDays,
+      'updatedAt': updatedAt?.toIso8601String(),
     };
   }
 }

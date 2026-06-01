@@ -46,6 +46,7 @@ class ContactsImportService {
     final deviceContacts = await device.FlutterContacts.getAll(
       properties: {
         device.ContactProperty.name,
+        device.ContactProperty.phone,
         device.ContactProperty.email,
         device.ContactProperty.address,
         device.ContactProperty.organization,
@@ -72,6 +73,8 @@ class ContactsImportService {
     ].where((s) => s.isNotEmpty).join(' · ');
 
     final address = c.addresses.isNotEmpty ? _formatAddress(c.addresses.first) : '';
+    final phone = c.phones.isNotEmpty ? c.phones.first.number : '';
+    final email = c.emails.isNotEmpty ? c.emails.first.address : '';
 
     return Contact(
       // Temporary client id; the backend assigns the real id on create.
@@ -80,6 +83,8 @@ class ContactsImportService {
       lastName: c.name?.last ?? '',
       workplace: workplace,
       homeAddress: address,
+      phone: phone,
+      email: email,
       tags: const ['Imported'],
       locationMet: '',
       dateMet: DateTime.now(),

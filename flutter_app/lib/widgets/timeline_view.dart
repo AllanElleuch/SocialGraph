@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/contact.dart';
 
+/// How the timeline orders contacts.
+enum TimelineSortMode {
+  /// Order by the date the contact was met (chronological, ascending).
+  met,
+
+  /// Order by the most recent interaction first (`lastInteraction ?? dateMet`).
+  recent,
+}
+
 class TimelineView extends StatefulWidget {
   final List<Contact> contacts;
   final ValueChanged<Contact> onSelectContact;
@@ -20,6 +29,8 @@ class _TimelineViewState extends State<TimelineView>
   late AnimationController _animController;
   late Animation<double> _fadeIn;
 
+  TimelineSortMode _sortMode = TimelineSortMode.met;
+
   @override
   void initState() {
     super.initState();
@@ -37,42 +48,140 @@ class _TimelineViewState extends State<TimelineView>
     super.dispose();
   }
 
-  List<Contact> get _sorted =>
-      [...widget.contacts]..sort((a, b) => a.dateMet.compareTo(b.dateMet));
+  /// The date used to order/group a contact in "Recent" mode.
+  DateTime _recencyOf(Contact c) => c.lastInteraction ?? c.dateMet;
+
+  List<Contact> get _sorted {
+    final list = [...widget.contacts];
+    switch (_sortMode) {
+      case TimelineSortMode.met:
+        list.sort((a, b) => a.dateMet.compareTo(b.dateMet));
+        break;
+      case TimelineSortMode.recent:
+        // Most-recent interaction first (descending).
+        list.sort((a, b) => _recencyOf(b).compareTo(_recencyOf(a)));
+        break;
+    }
+    return list;
+  }
+
+  /// The date this contact is positioned/grouped by under the active mode.
+  DateTime _orderingDate(Contact c) =>
+      _sortMode == TimelineSortMode.recent ? _recencyOf(c) : c.dateMet;
 
   @override
   Widget build(BuildContext context) {
     if (widget.contacts.isEmpty) {
-      return const Center(
-        child:
-            Text('No contacts', style: TextStyle(color: Color(0xFF94a3b8))),
+      return Column(
+        children: [
+          _buildModeToggle(),
+          const Expanded(
+            child: Center(
+              child: Text('No contacts',
+                  style: TextStyle(color: Color(0xFF94a3b8))),
+            ),
+          ),
+        ],
       );
     }
 
     final sorted = _sorted;
-    final earliest = sorted.first.dateMet;
-    final latest = sorted.last.dateMet;
 
-    // Group contacts by year-month
+    // Color range spans the ordering dates so the magma gradient stays
+    // meaningful regardless of the active sort mode.
+    final orderingDates = sorted.map(_orderingDate).toList();
+    var earliest = orderingDates.first;
+    var latest = orderingDates.first;
+    for (final d in orderingDates) {
+      if (d.isBefore(earliest)) earliest = d;
+      if (d.isAfter(latest)) latest = d;
+    }
+
+    // Group contacts by year-month of their ordering date, preserving the
+    // sorted order of first appearance.
     final groups = <String, List<Contact>>{};
     for (final c in sorted) {
-      final key = _monthYearKey(c.dateMet);
+      final key = _monthYearKey(_orderingDate(c));
       groups.putIfAbsent(key, () => []).add(c);
     }
     final groupKeys = groups.keys.toList();
 
-    return FadeTransition(
-      opacity: _fadeIn,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 100, bottom: 100),
-        child: ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-          itemCount: groupKeys.length,
-          itemBuilder: (context, index) {
-            final key = groupKeys[index];
-            final contacts = groups[key]!;
-            return _buildMonthGroup(key, contacts, earliest, latest);
-          },
+    return Column(
+      children: [
+        _buildModeToggle(),
+        Expanded(
+          child: FadeTransition(
+            opacity: _fadeIn,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 100, bottom: 100),
+              child: ListView.builder(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                itemCount: groupKeys.length,
+                itemBuilder: (context, index) {
+                  final key = groupKeys[index];
+                  final contacts = groups[key]!;
+                  return _buildMonthGroup(key, contacts, earliest, latest);
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModeToggle() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF1e1b4b)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildModeButton('Met', TimelineSortMode.met),
+              const SizedBox(width: 4),
+              _buildModeButton('Recent', TimelineSortMode.recent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeButton(String label, TimelineSortMode mode) {
+    final selected = _sortMode == mode;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: 'Sort by $label',
+      child: GestureDetector(
+        onTap: () {
+          if (_sortMode != mode) {
+            setState(() => _sortMode = mode);
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF6366f1) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : const Color(0xFF6b7280),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
     );
@@ -187,7 +296,9 @@ class _TimelineViewState extends State<TimelineView>
 
   Widget _buildContactTile(
       Contact contact, DateTime earliest, DateTime latest) {
-    final color = _timeColor(contact.dateMet, earliest, latest);
+    final orderingDate = _orderingDate(contact);
+    final color = _timeColor(orderingDate, earliest, latest);
+    final interactionCount = contact.interactions.length;
 
     return GestureDetector(
       onTap: () => widget.onSelectContact(contact),
@@ -279,17 +390,53 @@ class _TimelineViewState extends State<TimelineView>
                         ],
                       ),
                     ),
+                  // Interaction count badge
+                  if (interactionCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: _buildInteractionBadge(interactionCount, color),
+                    ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            // Date
+            // Date (reflects the active ordering: dateMet or last interaction)
             Text(
-              _relativeDate(contact.dateMet),
+              _relativeDate(orderingDate),
               style: TextStyle(
                 color: color,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInteractionBadge(int count, Color color) {
+    final label = '$count ${count == 1 ? 'interaction' : 'interactions'}';
+    return Semantics(
+      label: label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.history, size: 11, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

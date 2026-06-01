@@ -40,6 +40,8 @@ dependencies:
   geolocator: ^13.0.0
   geolocator_apple: ^2.3.0
   flutter_contacts: ^2.1.0
+  url_launcher: ^6.3.0
+  shared_preferences: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -51,6 +53,20 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+
+  # Generates platform launcher icons from assets/icon/app_icon.png.
+  # Run: dart run flutter_launcher_icons
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  image_path: "assets/icon/app_icon.png"
+  # This app targets iOS and macOS only (no Android project).
+  android: false
+  ios: true
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

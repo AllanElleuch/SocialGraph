@@ -28,6 +28,9 @@ class _ContactFormState extends State<ContactForm> {
   late final TextEditingController _firstNameController;
   late final TextEditingController _lastNameController;
   late final TextEditingController _workplaceController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _notesController;
 
   late List<String> _tags;
   String? _locationMet;
@@ -36,6 +39,7 @@ class _ContactFormState extends State<ContactForm> {
   String? _homeAddress;
   late DateTime _dateMet;
   late Set<String> _selectedConnections;
+  int? _reminderCadenceDays;
 
   bool get _isEditMode => widget.existingContact != null;
 
@@ -46,6 +50,9 @@ class _ContactFormState extends State<ContactForm> {
     _firstNameController = TextEditingController(text: c?.firstName ?? '');
     _lastNameController = TextEditingController(text: c?.lastName ?? '');
     _workplaceController = TextEditingController(text: c?.workplace ?? '');
+    _phoneController = TextEditingController(text: c?.phone ?? '');
+    _emailController = TextEditingController(text: c?.email ?? '');
+    _notesController = TextEditingController(text: c?.notes ?? '');
     _tags = List<String>.from(c?.tags ?? []);
     _locationMet = c?.locationMet;
     _locationLat = c?.lat;
@@ -53,6 +60,7 @@ class _ContactFormState extends State<ContactForm> {
     _homeAddress = c?.homeAddress;
     _dateMet = c?.dateMet ?? DateTime.now();
     _selectedConnections = Set<String>.from(c?.connections ?? []);
+    _reminderCadenceDays = c?.reminderCadenceDays;
   }
 
   @override
@@ -60,15 +68,18 @@ class _ContactFormState extends State<ContactForm> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _workplaceController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
   void _onSave() {
     if (!_formKey.currentState!.validate()) return;
 
+    final existing = widget.existingContact;
     final contact = Contact(
-      id: widget.existingContact?.id ??
-          DateTime.now().millisecondsSinceEpoch.toString(),
+      id: existing?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
       tags: _tags,
@@ -77,11 +88,25 @@ class _ContactFormState extends State<ContactForm> {
       lng: _locationLng,
       dateMet: _dateMet,
       connections: _selectedConnections.toList(),
-      lastInteraction: widget.existingContact?.lastInteraction,
+      lastInteraction: existing?.lastInteraction,
       workplace: _workplaceController.text.trim(),
       homeAddress: _homeAddress ?? '',
+      phone: _phoneController.text.trim(),
+      email: _emailController.text.trim(),
+      notes: _notesController.text.trim(),
+      reminderCadenceDays: _reminderCadenceDays,
+      // Preserve the interaction history on edit; it is not editable here.
+      interactions: existing?.interactions ?? const [],
+      updatedAt: DateTime.now(),
     );
     widget.onSave(contact);
+  }
+
+  String? _validateEmail(String? value) {
+    final v = value?.trim() ?? '';
+    if (v.isEmpty) return null; // email is optional
+    final re = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    return re.hasMatch(v) ? null : 'Enter a valid email';
   }
 
   Future<void> _pickDate() async {
@@ -258,6 +283,56 @@ class _ContactFormState extends State<ContactForm> {
                   controller: _workplaceController,
                   style: const TextStyle(color: Color(0xFFe2e8f0)),
                   decoration: _fieldDecoration(),
+                ),
+                const SizedBox(height: 16),
+
+                // Phone
+                _fieldLabel('Phone'),
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  style: const TextStyle(color: Color(0xFFe2e8f0)),
+                  decoration: _fieldDecoration(hintText: '+1 555 123 4567'),
+                ),
+                const SizedBox(height: 16),
+
+                // Email
+                _fieldLabel('Email'),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  style: const TextStyle(color: Color(0xFFe2e8f0)),
+                  decoration: _fieldDecoration(hintText: 'name@example.com'),
+                  validator: _validateEmail,
+                ),
+                const SizedBox(height: 16),
+
+                // Notes
+                _fieldLabel('Notes'),
+                TextFormField(
+                  controller: _notesController,
+                  maxLines: 3,
+                  style: const TextStyle(color: Color(0xFFe2e8f0)),
+                  decoration:
+                      _fieldDecoration(hintText: 'How you met, context, reminders…'),
+                ),
+                const SizedBox(height: 16),
+
+                // Stay-in-touch cadence
+                _fieldLabel('Stay in touch'),
+                DropdownButtonFormField<int?>(
+                  initialValue: _reminderCadenceDays,
+                  dropdownColor: const Color(0xFF1a1a1a),
+                  style: const TextStyle(color: Color(0xFFe2e8f0)),
+                  decoration: _fieldDecoration(),
+                  items: const [
+                    DropdownMenuItem(value: null, child: Text('Default (by tag)')),
+                    DropdownMenuItem(value: 7, child: Text('Weekly')),
+                    DropdownMenuItem(value: 30, child: Text('Monthly')),
+                    DropdownMenuItem(value: 90, child: Text('Quarterly')),
+                    DropdownMenuItem(value: 0, child: Text('Off')),
+                  ],
+                  onChanged: (v) => setState(() => _reminderCadenceDays = v),
                 ),
                 const SizedBox(height: 16),
 

@@ -1,14 +1,23 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'models/contact.dart';
 import 'services/contact_service.dart';
 import 'services/contacts_import_service.dart';
+import 'services/contact_repository.dart';
+import 'services/contact_search.dart';
+import 'services/interaction_log.dart';
+import 'services/duplicate_detector.dart';
+import 'services/contact_merge.dart';
+import 'services/backup_service.dart';
 import 'widgets/graph_view.dart';
 import 'widgets/map_view.dart';
 import 'widgets/contact_card.dart';
 import 'widgets/controls.dart';
 import 'widgets/contact_form.dart';
 import 'widgets/timeline_view.dart';
+import 'widgets/merge_review_sheet.dart';
+import 'widgets/needs_attention_view.dart';
 
 void main() {
   runApp(const SocialGraphApp());
@@ -41,6 +50,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final ContactService _service = ContactService();
   final ContactsImportService _importService = ContactsImportService();
+  final ContactRepository _repository = ContactRepository();
   List<Contact> _contacts = [];
   PivotType _pivot = PivotType.mutual;
   Contact? _selectedContact;
@@ -53,20 +63,183 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _fetchContacts();
+    _loadContacts();
   }
 
-  Future<void> _fetchContacts() async {
-    try {
-      final contacts = await _service.fetchContacts();
+  /// Local-first load: render the cached list immediately, then refresh from
+  /// the server in the background and reconcile + persist.
+  Future<void> _loadContacts() async {
+    final cached = await _repository.load();
+    if (cached.isNotEmpty && mounted) {
       setState(() {
-        _contacts = contacts;
+        _contacts = cached;
         _loading = false;
       });
+    }
+    await _refreshFromServer(local: cached);
+  }
+
+  Future<void> _refreshFromServer({List<Contact>? local}) async {
+    final localList = local ?? _contacts;
+    try {
+      final server = await _service.fetchContacts();
+      final merged = _reconcile(local: localList, server: server);
+      if (mounted) {
+        setState(() {
+          _contacts = merged;
+          _loading = false;
+        });
+      }
+      await _repository.save(merged);
     } catch (e) {
       debugPrint('Failed to fetch contacts: $e');
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Last-write-wins reconciliation (U4.3): the server is authoritative for
+  /// shared ids; locally-added contacts not yet known to the server are kept.
+  List<Contact> _reconcile({
+    required List<Contact> local,
+    required List<Contact> server,
+  }) {
+    final serverIds = server.map((c) => c.id).toSet();
+    final localOnly = local.where((c) => !serverIds.contains(c.id));
+    return [...server, ...localOnly];
+  }
+
+  Future<void> _persist() => _repository.save(_contacts);
+
+  /// Applies a logged interaction to the selected contact, persists, and
+  /// best-effort syncs to the server.
+  void _onLogInteraction(InteractionEvent event) {
+    final c = _selectedContact;
+    if (c == null) return;
+    final updated = c.logInteraction(event);
+    setState(() {
+      final idx = _contacts.indexWhere((x) => x.id == updated.id);
+      if (idx >= 0) _contacts = [..._contacts]..[idx] = updated;
+      _selectedContact = updated;
+    });
+    unawaited(_service.updateContact(updated).catchError((_) => updated));
+    unawaited(_persist());
+  }
+
+  /// Applies a merge: drops merged-away ids, upserts the merged contact, and
+  /// repoints any connections that referenced the removed contacts.
+  void _applyMerge(Contact merged, List<String> mergedAwayIds) {
+    setState(() {
+      var list =
+          _contacts.where((c) => !mergedAwayIds.contains(c.id)).toList();
+      final idx = list.indexWhere((c) => c.id == merged.id);
+      if (idx >= 0) {
+        list[idx] = merged;
+      } else {
+        list = [...list, merged];
+      }
+      _contacts = rewriteConnections(list, merged.id, mergedAwayIds.toSet());
+      if (_selectedContact != null &&
+          mergedAwayIds.contains(_selectedContact!.id)) {
+        _selectedContact = merged;
+      }
+    });
+    unawaited(_persist());
+    unawaited(_service.updateContact(merged).catchError((_) => merged));
+    for (final id in mergedAwayIds) {
+      unawaited(_service.deleteContact(id).catchError((_) {}));
+    }
+  }
+
+  void _reviewDuplicates() {
+    final groups = findDuplicateGroups(_contacts);
+    if (groups.isEmpty) {
+      _showSnack('No duplicates found');
+      return;
+    }
+    MergeReviewSheet.show(
+      context,
+      groups: groups,
+      onMergeGroup: _applyMerge,
+    );
+  }
+
+  void _openNeedsAttention() {
+    NeedsAttentionView.show(
+      context,
+      contacts: _contacts,
+      now: DateTime.now(),
+      onSelect: (c) => setState(() => _selectedContact = c),
+    );
+  }
+
+  void _exportBackup() {
+    final json = BackupService().exportJson(_contacts);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a1a),
+        title: const Text('Backup — copy this JSON',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: SizedBox(
+          width: 400,
+          child: SelectableText(
+            json,
+            style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 11),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _importBackup() {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a1a),
+        title: const Text('Import backup',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: SizedBox(
+          width: 400,
+          child: TextField(
+            controller: controller,
+            maxLines: 8,
+            style: const TextStyle(color: Color(0xFFe2e8f0), fontSize: 12),
+            decoration: const InputDecoration(
+              hintText: 'Paste backup JSON here…',
+              hintStyle: TextStyle(color: Color(0xFF6b7280)),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              try {
+                final merged =
+                    BackupService().importMerged(_contacts, controller.text);
+                setState(() => _contacts = merged);
+                unawaited(_persist());
+                Navigator.of(ctx).pop();
+                _showSnack('Imported ${merged.length} contacts');
+              } catch (e) {
+                _showSnack('Invalid backup: $e');
+              }
+            },
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openAddForm() {
@@ -99,7 +272,7 @@ class _HomePageState extends State<HomePage> {
       } else {
         await _service.addContact(contact);
       }
-      await _fetchContacts();
+      await _refreshFromServer();
     } catch (e) {
       // Offline fallback: update local list directly
       setState(() {
@@ -112,6 +285,7 @@ class _HomePageState extends State<HomePage> {
           _contacts = [..._contacts, contact];
         }
       });
+      unawaited(_persist());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Saved locally (server unavailable)')),
@@ -176,13 +350,24 @@ class _HomePageState extends State<HomePage> {
       }
 
       if (serverOk) {
-        await _fetchContacts();
+        await _refreshFromServer();
       } else {
         setState(() => _contacts = [..._contacts, ...localAdds]);
+        unawaited(_persist());
       }
 
       if (!mounted) return;
       _showSnack('Imported $added contact${added == 1 ? '' : 's'}');
+
+      // Offer to merge any duplicates the import may have introduced.
+      final groups = findDuplicateGroups(_contacts);
+      if (groups.isNotEmpty && mounted) {
+        MergeReviewSheet.show(
+          context,
+          groups: groups,
+          onMergeGroup: _applyMerge,
+        );
+      }
     } catch (e) {
       if (mounted) _showSnack('Import failed: $e');
     } finally {
@@ -196,12 +381,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Contact> get _filteredContacts {
-    if (_searchQuery.isEmpty) return _contacts;
-    final query = _searchQuery.toLowerCase();
-    return _contacts.where((c) {
-      return c.displayName.toLowerCase().contains(query) ||
-          c.tags.any((t) => t.toLowerCase().contains(query));
-    }).toList();
+    if (_searchQuery.trim().isEmpty) return _contacts;
+    return _contacts
+        .where((c) => contactMatchesQuery(c, _searchQuery))
+        .toList();
   }
 
   @override
@@ -263,7 +446,10 @@ class _HomePageState extends State<HomePage> {
           ContactCard(
             contact: _selectedContact,
             onClose: () => setState(() => _selectedContact = null),
-            onEdit: _selectedContact != null ? () => _openEditForm(_selectedContact!) : null,
+            onEdit: _selectedContact != null
+                ? () => _openEditForm(_selectedContact!)
+                : null,
+            onLogInteraction: _onLogInteraction,
           ),
 
           // Contact Form
@@ -402,6 +588,46 @@ class _HomePageState extends State<HomePage> {
                     tooltip: 'About this view',
                     icon: const Icon(Icons.info_outline,
                         color: Color(0xFF6b7280), size: 20),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'More',
+                    color: const Color(0xFF1a1a1a),
+                    icon: const Icon(Icons.more_vert,
+                        color: Color(0xFF6b7280), size: 20),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'attention':
+                          _openNeedsAttention();
+                        case 'duplicates':
+                          _reviewDuplicates();
+                        case 'export':
+                          _exportBackup();
+                        case 'import':
+                          _importBackup();
+                      }
+                    },
+                    itemBuilder: (ctx) => const [
+                      PopupMenuItem(
+                        value: 'attention',
+                        child: Text('Needs attention',
+                            style: TextStyle(color: Color(0xFFe2e8f0))),
+                      ),
+                      PopupMenuItem(
+                        value: 'duplicates',
+                        child: Text('Review duplicates',
+                            style: TextStyle(color: Color(0xFFe2e8f0))),
+                      ),
+                      PopupMenuItem(
+                        value: 'export',
+                        child: Text('Export backup',
+                            style: TextStyle(color: Color(0xFFe2e8f0))),
+                      ),
+                      PopupMenuItem(
+                        value: 'import',
+                        child: Text('Import backup',
+                            style: TextStyle(color: Color(0xFFe2e8f0))),
+                      ),
+                    ],
                   ),
                 ],
               ),
