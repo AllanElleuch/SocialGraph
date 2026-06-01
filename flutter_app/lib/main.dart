@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'models/contact.dart';
 import 'services/contact_service.dart';
+import 'services/contacts_import_service.dart';
 import 'widgets/graph_view.dart';
 import 'widgets/map_view.dart';
 import 'widgets/contact_card.dart';
@@ -38,11 +40,13 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final ContactService _service = ContactService();
+  final ContactsImportService _importService = ContactsImportService();
   List<Contact> _contacts = [];
   PivotType _pivot = PivotType.mutual;
   Contact? _selectedContact;
   String _searchQuery = '';
   bool _loading = true;
+  bool _importing = false;
   bool _showForm = false;
   Contact? _editingContact;
 
@@ -115,6 +119,80 @@ class _HomePageState extends State<HomePage> {
       }
     }
     _closeForm();
+  }
+
+  Future<void> _importFromPhone() async {
+    if (_importing) return;
+    setState(() => _importing = true);
+    try {
+      final result = await _importService.importFromDevice();
+      if (!mounted) return;
+
+      if (result.status == ImportStatus.denied) {
+        _showSnack('Contacts permission denied');
+        return;
+      }
+      if (result.status == ImportStatus.permanentlyDenied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Enable contacts access in Settings to import'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: _importService.openSettings,
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Skip contacts already present (matched by display name).
+      final existingNames =
+          _contacts.map((c) => c.displayName.toLowerCase()).toSet();
+      final toAdd = result.contacts
+          .where((c) => !existingNames.contains(c.displayName.toLowerCase()))
+          .toList();
+
+      if (toAdd.isEmpty) {
+        _showSnack('No new contacts to import');
+        return;
+      }
+
+      // Persist to the backend; fall back to local state if it is unreachable.
+      var serverOk = true;
+      final localAdds = <Contact>[];
+      var added = 0;
+      for (final contact in toAdd) {
+        if (serverOk) {
+          try {
+            await _service.addContact(contact);
+            added++;
+            continue;
+          } catch (_) {
+            serverOk = false;
+          }
+        }
+        localAdds.add(contact);
+        added++;
+      }
+
+      if (serverOk) {
+        await _fetchContacts();
+      } else {
+        setState(() => _contacts = [..._contacts, ...localAdds]);
+      }
+
+      if (!mounted) return;
+      _showSnack('Imported $added contact${added == 1 ? '' : 's'}');
+    } catch (e) {
+      if (mounted) _showSnack('Import failed: $e');
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   List<Contact> get _filteredContacts {
@@ -303,8 +381,25 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
+                  if (!kIsWeb)
+                    IconButton(
+                      onPressed: _importing ? null : _importFromPhone,
+                      tooltip: 'Import phone contacts',
+                      icon: _importing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF6366f1),
+                              ),
+                            )
+                          : const Icon(Icons.contact_phone_outlined,
+                              color: Color(0xFF6b7280), size: 20),
+                    ),
                   IconButton(
-                    onPressed: () {},
+                    onPressed: _showInfo,
+                    tooltip: 'About this view',
                     icon: const Icon(Icons.info_outline,
                         color: Color(0xFF6b7280), size: 20),
                   ),
@@ -312,6 +407,118 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showInfo() {
+    const views = [
+      (
+        PivotType.mutual,
+        Icons.people,
+        'Mutuals',
+        'Cluster contacts by their shared connections to reveal your network.',
+      ),
+      (
+        PivotType.location,
+        Icons.map_outlined,
+        'Location',
+        'Place contacts on a map by where you met them and where they live.',
+      ),
+      (
+        PivotType.time,
+        Icons.schedule,
+        'Timeline',
+        'Order contacts chronologically by the date you first met.',
+      ),
+    ];
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.6),
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF1a1a1a),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF333333)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Contextual Contacts',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close,
+                        color: Color(0xFF9ca3af), size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Switch views from the bottom bar to explore your network in different ways.',
+                style: TextStyle(color: Color(0xFF9ca3af), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              for (final (pivot, icon, title, desc) in views)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        icon,
+                        size: 20,
+                        color: _pivot == pivot
+                            ? const Color(0xFF6366f1)
+                            : const Color(0xFF6b7280),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                color: _pivot == pivot
+                                    ? Colors.white
+                                    : const Color(0xFFe2e8f0),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              desc,
+                              style: const TextStyle(
+                                color: Color(0xFF6b7280),
+                                fontSize: 12,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

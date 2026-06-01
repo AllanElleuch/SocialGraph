@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.9.2
@@ -39,6 +39,7 @@ dependencies:
   intl: ^0.20.2
   geolocator: ^13.0.0
   geolocator_apple: ^2.3.0
+  flutter_contacts: ^2.1.0
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +57,14 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+
+  # This project integrates plugins via CocoaPods, not Swift Package Manager.
+  # SPM is enabled globally in this environment, which would otherwise route
+  # the iOS/macOS plugins (flutter_contacts, geolocator_apple) away from
+  # CocoaPods while the Xcode projects are not SPM-migrated, dropping them
+  # from the build. Disable SPM here to keep plugins as CocoaPods pods.
+  config:
+    enable-swift-package-manager: false
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
