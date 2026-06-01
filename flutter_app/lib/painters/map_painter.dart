@@ -5,8 +5,9 @@ import '../models/contact.dart';
 class MapPainter extends CustomPainter {
   final List<Contact> contacts;
   final List<List<List<List<double>>>>? geoData; // country polygons
+  final ({double lat, double lng})? userLocation; // device GPS location
 
-  MapPainter({required this.contacts, this.geoData});
+  MapPainter({required this.contacts, this.geoData, this.userLocation});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -15,6 +16,7 @@ class MapPainter extends CustomPainter {
       _drawCountries(canvas, size);
     }
     _drawContactPins(canvas, size);
+    _drawUserLocation(canvas, size);
   }
 
   void _drawBackground(Canvas canvas, Size size) {
@@ -96,7 +98,31 @@ class MapPainter extends CustomPainter {
     }
   }
 
+  void _drawUserLocation(Canvas canvas, Size size) {
+    final loc = userLocation;
+    if (loc == null) return;
+
+    final pos = _mercatorProject(loc.lng, loc.lat, size);
+
+    // Soft accuracy halo around the device location.
+    final haloPaint = Paint()
+      ..color = const Color(0xFF3b82f6).withValues(alpha: 0.2);
+    canvas.drawCircle(pos, 16, haloPaint);
+
+    // White outer ring for contrast against any background.
+    final ringPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(pos, 8, ringPaint);
+
+    // Solid blue dot marking "you are here".
+    final dotPaint = Paint()..color = const Color(0xFF2563eb);
+    canvas.drawCircle(pos, 6, dotPaint);
+  }
+
   @override
   bool shouldRepaint(covariant MapPainter oldDelegate) =>
-      contacts != oldDelegate.contacts || geoData != oldDelegate.geoData;
+      contacts != oldDelegate.contacts ||
+      geoData != oldDelegate.geoData ||
+      userLocation != oldDelegate.userLocation;
 }

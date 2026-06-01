@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'models/contact.dart';
@@ -10,6 +11,11 @@ import 'services/interaction_log.dart';
 import 'services/duplicate_detector.dart';
 import 'services/contact_merge.dart';
 import 'services/backup_service.dart';
+import 'services/reach_out_service.dart';
+import 'services/auth_service.dart';
+import 'services/cloud_sync_service.dart';
+import 'services/notification_service.dart';
+import 'services/firebase_bootstrap.dart';
 import 'widgets/graph_view.dart';
 import 'widgets/map_view.dart';
 import 'widgets/contact_card.dart';
@@ -18,8 +24,15 @@ import 'widgets/contact_form.dart';
 import 'widgets/timeline_view.dart';
 import 'widgets/merge_review_sheet.dart';
 import 'widgets/needs_attention_view.dart';
+import 'widgets/sign_in_screen.dart';
 
-void main() {
+/// Whether Firebase initialized successfully. When false the app runs fully
+/// offline-first with no auth/cloud features (e.g. config files absent, tests).
+bool firebaseReady = false;
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  firebaseReady = await initFirebaseSafely();
   runApp(const SocialGraphApp());
 }
 
@@ -51,7 +64,13 @@ class _HomePageState extends State<HomePage> {
   final ContactService _service = ContactService();
   final ContactsImportService _importService = ContactsImportService();
   final ContactRepository _repository = ContactRepository();
+  final AuthService _auth = AuthService();
+  final CloudSyncService _cloud = CloudSyncService();
+  final NotificationService _notifications = NotificationService();
   List<Contact> _contacts = [];
+
+  bool get _cloudEnabled => firebaseReady;
+  bool get _signedIn => _cloudEnabled && _auth.isSignedIn;
   PivotType _pivot = PivotType.mutual;
   Contact? _selectedContact;
   String _searchQuery = '';
@@ -77,6 +96,34 @@ class _HomePageState extends State<HomePage> {
       });
     }
     await _refreshFromServer(local: cached);
+    await _syncWithCloud();
+    await _notifyOverdue();
+  }
+
+  /// Reconciles the local list with the signed-in user's cloud copy
+  /// (last-write-wins by updatedAt) and persists the result. No-op when cloud
+  /// is disabled or the user is not signed in.
+  Future<void> _syncWithCloud() async {
+    if (!_signedIn) return;
+    try {
+      final uid = _auth.currentUser!.uid;
+      final synced = await _cloud.sync(uid, _contacts);
+      if (mounted) setState(() => _contacts = synced);
+      await _repository.save(_contacts);
+    } catch (e) {
+      debugPrint('Cloud sync failed: $e');
+    }
+  }
+
+  /// Surfaces a single local notification summarizing overdue reach-outs.
+  Future<void> _notifyOverdue() async {
+    try {
+      await _notifications.init();
+      final overdue = overdueContacts(_contacts, now: DateTime.now());
+      await _notifications.showOverdueSummary(overdue.length);
+    } catch (e) {
+      debugPrint('Notification scheduling failed: $e');
+    }
   }
 
   Future<void> _refreshFromServer({List<Contact>? local}) async {
@@ -108,7 +155,35 @@ class _HomePageState extends State<HomePage> {
     return [...server, ...localOnly];
   }
 
-  Future<void> _persist() => _repository.save(_contacts);
+  Future<void> _persist() async {
+    await _repository.save(_contacts);
+    if (_signedIn) {
+      unawaited(_cloud.push(_auth.currentUser!.uid, _contacts).catchError(
+        (Object e) => debugPrint('Cloud push failed: $e'),
+      ));
+    }
+  }
+
+  Future<void> _openSignIn() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SignInScreen(
+          auth: _auth,
+          onSignedIn: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+    await _syncWithCloud();
+  }
+
+  Future<void> _signOut() async {
+    await _auth.signOut();
+    if (mounted) {
+      setState(() {});
+      _showSnack('Signed out');
+    }
+  }
 
   /// Applies a logged interaction to the selected contact, persists, and
   /// best-effort syncs to the server.
@@ -432,6 +507,10 @@ class _HomePageState extends State<HomePage> {
               onSelectContact: (c) => setState(() => _selectedContact = c),
             ),
 
+          // Legend — annotates the active view, so it sits just above the
+          // view content but BEHIND the header, controls, card, and form.
+          _buildLegend(),
+
           // Header
           _buildHeader(),
 
@@ -452,13 +531,18 @@ class _HomePageState extends State<HomePage> {
             onLogInteraction: _onLogInteraction,
           ),
 
-          // Contact Form
+          // Contact Form — responsive width so the panel always fits the
+          // screen (full-width minus margins on phones, capped at 380 on wide
+          // layouts).
           if (_showForm)
             Positioned(
               top: 16,
               right: 16,
               bottom: 16,
-              width: 380,
+              width: math.min(
+                380.0,
+                MediaQuery.of(context).size.width - 32,
+              ),
               child: ContactForm(
                 existingContact: _editingContact,
                 allContacts: _contacts,
@@ -466,9 +550,6 @@ class _HomePageState extends State<HomePage> {
                 onCancel: _closeForm,
               ),
             ),
-
-          // Legend
-          _buildLegend(),
         ],
       ),
     );
@@ -604,29 +685,41 @@ class _HomePageState extends State<HomePage> {
                           _exportBackup();
                         case 'import':
                           _importBackup();
+                        case 'signin':
+                          _openSignIn();
+                        case 'signout':
+                          _signOut();
                       }
                     },
-                    itemBuilder: (ctx) => const [
-                      PopupMenuItem(
+                    itemBuilder: (ctx) => [
+                      const PopupMenuItem(
                         value: 'attention',
                         child: Text('Needs attention',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'duplicates',
                         child: Text('Review duplicates',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'export',
                         child: Text('Export backup',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
-                      PopupMenuItem(
+                      const PopupMenuItem(
                         value: 'import',
                         child: Text('Import backup',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
+                      if (_cloudEnabled)
+                        PopupMenuItem(
+                          value: _signedIn ? 'signout' : 'signin',
+                          child: Text(
+                            _signedIn ? 'Sign out' : 'Sign in to sync',
+                            style: const TextStyle(color: Color(0xFF818cf8)),
+                          ),
+                        ),
                     ],
                   ),
                 ],

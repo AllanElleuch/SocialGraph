@@ -87,7 +87,9 @@ class ContactsImportService {
       email: email,
       tags: const ['Imported'],
       locationMet: '',
-      dateMet: DateTime.now(),
+      // The OS does not expose a contact's creation date, so imported contacts
+      // are left undated; the user sets "date met" later per contact.
+      dateMet: null,
       connections: const [],
     );
   }

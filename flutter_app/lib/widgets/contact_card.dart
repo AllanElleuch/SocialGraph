@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/contact.dart';
@@ -28,13 +29,18 @@ class ContactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Responsive width: cap at 320 on wide layouts, but shrink to fit the
+    // screen (minus margins) on phones so the card never overflows.
+    const margin = 16.0;
+    final width = math.min(320.0, MediaQuery.of(context).size.width - margin * 2);
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
       top: 16,
-      right: contact != null ? 16 : -340,
+      // When hidden, slide fully off-screen to the right.
+      right: contact != null ? margin : -(width + 24),
       bottom: 16,
-      width: 320,
+      width: width,
       child: contact != null ? _buildCard(context) : const SizedBox(),
     );
   }
@@ -162,8 +168,15 @@ class ContactCard extends StatelessWidget {
             _infoRow(
               Icons.calendar_today_outlined,
               Text(
-                'Met on ${DateFormat.yMMMd().format(c.dateMet)}',
-                style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14),
+                c.dateMet != null
+                    ? 'Met on ${DateFormat.yMMMd().format(c.dateMet!)}'
+                    : 'Date met unknown — tap edit to set',
+                style: TextStyle(
+                  color: c.dateMet != null
+                      ? const Color(0xFF9ca3af)
+                      : const Color(0xFF6b7280),
+                  fontSize: 14,
+                ),
               ),
             ),
             const SizedBox(height: 24),

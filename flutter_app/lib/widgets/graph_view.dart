@@ -94,7 +94,8 @@ class _GraphViewState extends State<GraphView>
       }
     } else if (widget.pivot == PivotType.time) {
       final sorted = [...widget.contacts]
-        ..sort((a, b) => a.dateMet.compareTo(b.dateMet));
+        ..sort((a, b) => (a.dateMet?.millisecondsSinceEpoch ?? 0)
+            .compareTo(b.dateMet?.millisecondsSinceEpoch ?? 0));
       for (int i = 0; i < sorted.length - 1; i++) {
         _links.add(GraphLink(
             sourceId: sorted[i].id, targetId: sorted[i + 1].id, type: 'time'));
@@ -201,9 +202,11 @@ class _GraphViewState extends State<GraphView>
       );
     }
 
-    final times = widget.contacts.map((c) => c.dateMet.millisecondsSinceEpoch.toDouble());
-    final minTime = times.reduce(min);
-    final maxTime = times.reduce(max);
+    final times = widget.contacts
+        .map((c) => c.dateMet?.millisecondsSinceEpoch.toDouble())
+        .whereType<double>();
+    final minTime = times.isEmpty ? 0.0 : times.reduce(min);
+    final maxTime = times.isEmpty ? 0.0 : times.reduce(max);
 
     return Listener(
       onPointerDown: _onPointerDown,

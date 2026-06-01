@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/contact.dart';
 import '../painters/map_painter.dart';
+import '../services/location_service.dart';
 
 class MapView extends StatefulWidget {
   final List<Contact> contacts;
@@ -21,18 +20,93 @@ class MapView extends StatefulWidget {
   State<MapView> createState() => _MapViewState();
 }
 
-class _MapViewState extends State<MapView> {
+class _MapViewState extends State<MapView>
+    with SingleTickerProviderStateMixin {
   List<List<List<List<double>>>>? _geoData;
   bool _loading = true;
+
+  // Minimum/maximum zoom levels for the map. Shared with [InteractiveViewer].
+  static const double _minScale = 0.1;
+  static const double _maxScale = 8.0;
+
+  // Zoom level applied when centering on the device location.
+  static const double _focusScale = 5.0;
+
   final TransformationController _transformController =
       TransformationController();
-  bool _modifierHeld = false;
-  final FocusNode _focusNode = FocusNode();
+
+  final LocationService _locationService = LocationService();
+
+  // Device GPS position, once resolved. Drawn as the "you are here" dot.
+  ({double lat, double lng})? _userLocation;
+  bool _locating = false;
+
+  late final AnimationController _animController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
+  Animation<Matrix4>? _focusAnimation;
 
   @override
   void initState() {
     super.initState();
     _loadGeoData();
+  }
+
+  /// Projects a lng/lat pair to map (scene) coordinates. Must match the
+  /// Mercator projection used by [MapPainter].
+  Offset _project(double lng, double lat, Size size) {
+    final x = (lng + 180) / 360 * size.width;
+    final latRad = lat * math.pi / 180;
+    final mercN = math.log(math.tan(math.pi / 4 + latRad / 2));
+    final y = size.height / 2 - (mercN * size.width / (2 * math.pi));
+    return Offset(x, y);
+  }
+
+  void _onFocusTick() {
+    final anim = _focusAnimation;
+    if (anim != null) _transformController.value = anim.value;
+  }
+
+  /// Smoothly animates the viewport so [target] (scene coords) sits centered
+  /// at [_focusScale] zoom.
+  void _animateToScenePoint(Offset target, Size size) {
+    final s = _focusScale;
+    final center = Offset(size.width / 2, size.height / 2);
+    final end = Matrix4.identity()
+      ..translateByDouble(center.dx - s * target.dx, center.dy - s * target.dy,
+          0, 0)
+      ..scaleByDouble(s, s, 1, 1);
+
+    _focusAnimation?.removeListener(_onFocusTick);
+    _focusAnimation = Matrix4Tween(
+      begin: _transformController.value,
+      end: end,
+    ).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeInOut),
+    )..addListener(_onFocusTick);
+    _animController.forward(from: 0);
+  }
+
+  /// Requests location permission (if needed), resolves the device position,
+  /// shows it on the map, and zooms to it.
+  Future<void> _goToMyLocation(Size size) async {
+    if (_locating) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _locating = true);
+    try {
+      final pos = await _locationService.getCurrentPosition();
+      if (!mounted) return;
+      setState(() => _userLocation = pos);
+      _animateToScenePoint(_project(pos.lng, pos.lat, size), size);
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
   }
 
   Future<void> _loadGeoData() async {
@@ -135,12 +209,10 @@ class _MapViewState extends State<MapView> {
     return coords;
   }
 
+  // [localPosition] is already in the map's (scene) coordinate space because
+  // the tap target lives inside the [InteractiveViewer]'s transformed child,
+  // so no inverse-matrix step is needed here.
   Contact? _hitTest(Offset localPosition, Size size) {
-    final matrix = _transformController.value;
-    final inverted = Matrix4.tryInvert(matrix);
-    if (inverted == null) return null;
-    final transformed = MatrixUtils.transformPoint(inverted, localPosition);
-
     for (final contact in widget.contacts) {
       if (contact.lat == null || contact.lng == null) continue;
       final x = (contact.lng! + 180) / 360 * size.width;
@@ -148,8 +220,8 @@ class _MapViewState extends State<MapView> {
       final mercN = math.log(math.tan(math.pi / 4 + latRad / 2));
       final y = size.height / 2 - (mercN * size.width / (2 * math.pi));
 
-      final dx = transformed.dx - x;
-      final dy = transformed.dy - y;
+      final dx = localPosition.dx - x;
+      final dy = localPosition.dy - y;
       if (dx * dx + dy * dy <= 12 * 12) {
         return contact;
       }
@@ -157,56 +229,11 @@ class _MapViewState extends State<MapView> {
     return null;
   }
 
-  void _onKey(KeyEvent event) {
-    final isModifier = event.logicalKey == LogicalKeyboardKey.metaLeft ||
-        event.logicalKey == LogicalKeyboardKey.metaRight ||
-        event.logicalKey == LogicalKeyboardKey.altLeft ||
-        event.logicalKey == LogicalKeyboardKey.altRight;
-    if (isModifier) {
-      setState(() {
-        _modifierHeld = event is KeyDownEvent || event is KeyRepeatEvent;
-      });
-    }
-  }
-
-  void _onPointerSignal(PointerSignalEvent event) {
-    if (event is PointerScrollEvent) {
-      if (_modifierHeld) {
-        // Zoom toward cursor position
-        final cursorPos = event.localPosition;
-        final scrollDelta = event.scrollDelta.dy;
-        final zoomFactor = scrollDelta > 0 ? 0.9 : 1.1;
-
-        final matrix = _transformController.value.clone();
-        // Translate so cursor is origin, scale, translate back
-        matrix.translateByDouble(cursorPos.dx, cursorPos.dy, 0, 0);
-        matrix.scaleByDouble(zoomFactor, zoomFactor, 1, 1);
-        matrix.translateByDouble(-cursorPos.dx, -cursorPos.dy, 0, 0);
-
-        // Clamp scale between 0.1 and 8.0
-        final scale = matrix.getMaxScaleOnAxis();
-        if (scale >= 0.1 && scale <= 8.0) {
-          _transformController.value = matrix;
-        }
-      } else {
-        // Pan
-        final matrix = _transformController.value.clone();
-        final s = matrix.getMaxScaleOnAxis();
-        matrix.translateByDouble(
-          -event.scrollDelta.dx / s,
-          -event.scrollDelta.dy / s,
-          0,
-          0,
-        );
-        _transformController.value = matrix;
-      }
-    }
-  }
-
   @override
   void dispose() {
+    _focusAnimation?.removeListener(_onFocusTick);
+    _animController.dispose();
     _transformController.dispose();
-    _focusNode.dispose();
     super.dispose();
   }
 
@@ -218,27 +245,82 @@ class _MapViewState extends State<MapView> {
       );
     }
 
-    return KeyboardListener(
-      focusNode: _focusNode,
-      autofocus: true,
-      onKeyEvent: _onKey,
-      child: Listener(
-        onPointerSignal: _onPointerSignal,
-        child: GestureDetector(
-          onTapUp: (details) {
-            final size = MediaQuery.of(context).size;
-            final contact = _hitTest(details.localPosition, size);
-            if (contact != null) {
-              widget.onSelectContact(contact);
-            }
-          },
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: MapPainter(
-              contacts: widget.contacts,
-              geoData: _geoData,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return Stack(
+          children: [
+            InteractiveViewer(
+              transformationController: _transformController,
+              minScale: _minScale,
+              maxScale: _maxScale,
+              // Allow panning the map freely beyond its edges while zoomed.
+              boundaryMargin: const EdgeInsets.all(double.infinity),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (details) {
+                  final contact = _hitTest(details.localPosition, size);
+                  if (contact != null) {
+                    widget.onSelectContact(contact);
+                  }
+                },
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: MapPainter(
+                    contacts: widget.contacts,
+                    geoData: _geoData,
+                    userLocation: _userLocation,
+                  ),
+                ),
+              ),
             ),
-          ),
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: _LocateMeButton(
+                loading: _locating,
+                onPressed: () => _goToMyLocation(size),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Circular "center on my location" button shown over the map.
+class _LocateMeButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onPressed;
+
+  const _LocateMeButton({required this.loading, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF1e293b),
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: loading ? null : onPressed,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: loading
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF6366f1),
+                  ),
+                )
+              : const Icon(
+                  Icons.my_location,
+                  color: Color(0xFF6366f1),
+                  size: 22,
+                ),
         ),
       ),
     );

@@ -51,7 +51,15 @@ ReachOutStatus reachOutStatus(Contact c, {required DateTime now}) {
     );
   }
 
+  // With no interaction history and an unknown "date met" there is no basis
+  // to compute a reach-out cadence, so reminders stay off for this contact.
   final baseline = c.lastInteraction ?? c.dateMet;
+  if (baseline == null) {
+    return const ReachOutStatus(
+      dueInDays: kReachOutOffDueInDays,
+      isOverdue: false,
+    );
+  }
   final dueDate = baseline.add(Duration(days: cadence));
 
   return ReachOutStatus(

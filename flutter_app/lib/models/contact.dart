@@ -48,7 +48,10 @@ class Contact {
   final String locationMet;
   final double? lat;
   final double? lng;
-  final DateTime dateMet;
+
+  /// When you first met / started knowing this contact. Null = unknown, e.g.
+  /// for device imports (the OS does not expose a contact's creation date).
+  final DateTime? dateMet;
   final List<String> connections;
   final DateTime? lastInteraction;
 
@@ -74,7 +77,7 @@ class Contact {
     required this.locationMet,
     this.lat,
     this.lng,
-    required this.dateMet,
+    this.dateMet,
     required this.connections,
     this.lastInteraction,
     this.interactions = const [],
@@ -159,7 +162,9 @@ class Contact {
       locationMet: json['locationMet'] as String,
       lat: (json['lat'] as num?)?.toDouble(),
       lng: (json['lng'] as num?)?.toDouble(),
-      dateMet: DateTime.parse(json['dateMet'] as String),
+      dateMet: json['dateMet'] != null
+          ? DateTime.parse(json['dateMet'] as String)
+          : null,
       connections: List<String>.from(json['connections'] ?? []),
       lastInteraction: json['lastInteraction'] != null
           ? DateTime.parse(json['lastInteraction'] as String)
@@ -189,7 +194,7 @@ class Contact {
       'locationMet': locationMet,
       'lat': lat,
       'lng': lng,
-      'dateMet': dateMet.toIso8601String(),
+      'dateMet': dateMet?.toIso8601String(),
       'connections': connections,
       'lastInteraction': lastInteraction?.toIso8601String(),
       'interactions': interactions.map((e) => e.toJson()).toList(),

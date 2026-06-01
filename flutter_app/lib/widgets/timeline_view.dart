@@ -48,25 +48,35 @@ class _TimelineViewState extends State<TimelineView>
     super.dispose();
   }
 
-  /// The date used to order/group a contact in "Recent" mode.
-  DateTime _recencyOf(Contact c) => c.lastInteraction ?? c.dateMet;
+  /// The date used to order/group a contact in "Recent" mode. Null = unknown.
+  DateTime? _recencyOf(Contact c) => c.lastInteraction ?? c.dateMet;
+
+  /// Compares two nullable dates, sorting unknown (null) dates to the end.
+  int _cmpNullsLast(DateTime? a, DateTime? b, {bool descending = false}) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    return descending ? b.compareTo(a) : a.compareTo(b);
+  }
 
   List<Contact> get _sorted {
     final list = [...widget.contacts];
     switch (_sortMode) {
       case TimelineSortMode.met:
-        list.sort((a, b) => a.dateMet.compareTo(b.dateMet));
+        list.sort((a, b) => _cmpNullsLast(a.dateMet, b.dateMet));
         break;
       case TimelineSortMode.recent:
-        // Most-recent interaction first (descending).
-        list.sort((a, b) => _recencyOf(b).compareTo(_recencyOf(a)));
+        // Most-recent interaction first (descending); unknowns last.
+        list.sort(
+            (a, b) => _cmpNullsLast(_recencyOf(a), _recencyOf(b), descending: true));
         break;
     }
     return list;
   }
 
   /// The date this contact is positioned/grouped by under the active mode.
-  DateTime _orderingDate(Contact c) =>
+  /// Null when the contact has no known date (e.g. an undated import).
+  DateTime? _orderingDate(Contact c) =>
       _sortMode == TimelineSortMode.recent ? _recencyOf(c) : c.dateMet;
 
   @override
@@ -87,21 +97,23 @@ class _TimelineViewState extends State<TimelineView>
 
     final sorted = _sorted;
 
-    // Color range spans the ordering dates so the magma gradient stays
+    // Color range spans the known ordering dates so the magma gradient stays
     // meaningful regardless of the active sort mode.
-    final orderingDates = sorted.map(_orderingDate).toList();
-    var earliest = orderingDates.first;
-    var latest = orderingDates.first;
-    for (final d in orderingDates) {
+    final dated = sorted.map(_orderingDate).whereType<DateTime>().toList();
+    var earliest = dated.isEmpty ? DateTime.now() : dated.first;
+    var latest = earliest;
+    for (final d in dated) {
       if (d.isBefore(earliest)) earliest = d;
       if (d.isAfter(latest)) latest = d;
     }
 
-    // Group contacts by year-month of their ordering date, preserving the
-    // sorted order of first appearance.
+    // Group contacts by year-month of their ordering date (or an "Unknown"
+    // bucket for undated contacts), preserving the sorted order of first
+    // appearance. Because unknowns sort last, the Unknown group lands last.
     final groups = <String, List<Contact>>{};
     for (final c in sorted) {
-      final key = _monthYearKey(_orderingDate(c));
+      final d = _orderingDate(c);
+      final key = d != null ? _monthYearKey(d) : 'Unknown';
       groups.putIfAbsent(key, () => []).add(c);
     }
     final groupKeys = groups.keys.toList();
@@ -297,7 +309,9 @@ class _TimelineViewState extends State<TimelineView>
   Widget _buildContactTile(
       Contact contact, DateTime earliest, DateTime latest) {
     final orderingDate = _orderingDate(contact);
-    final color = _timeColor(orderingDate, earliest, latest);
+    final color = orderingDate != null
+        ? _timeColor(orderingDate, earliest, latest)
+        : const Color(0xFF6b7280);
     final interactionCount = contact.interactions.length;
 
     return GestureDetector(
@@ -402,7 +416,7 @@ class _TimelineViewState extends State<TimelineView>
             const SizedBox(width: 8),
             // Date (reflects the active ordering: dateMet or last interaction)
             Text(
-              _relativeDate(orderingDate),
+              orderingDate != null ? _relativeDate(orderingDate) : 'Unknown',
               style: TextStyle(
                 color: color,
                 fontSize: 12,

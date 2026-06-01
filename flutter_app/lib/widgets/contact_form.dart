@@ -37,7 +37,7 @@ class _ContactFormState extends State<ContactForm> {
   double? _locationLat;
   double? _locationLng;
   String? _homeAddress;
-  late DateTime _dateMet;
+  DateTime? _dateMet;
   late Set<String> _selectedConnections;
   int? _reminderCadenceDays;
 
@@ -58,7 +58,9 @@ class _ContactFormState extends State<ContactForm> {
     _locationLat = c?.lat;
     _locationLng = c?.lng;
     _homeAddress = c?.homeAddress;
-    _dateMet = c?.dateMet ?? DateTime.now();
+    // New contacts default to today (you know them now); imported/edited
+    // contacts keep their stored value, which may be null (unknown).
+    _dateMet = c?.dateMet ?? (c == null ? DateTime.now() : null);
     _selectedConnections = Set<String>.from(c?.connections ?? []);
     _reminderCadenceDays = c?.reminderCadenceDays;
   }
@@ -112,7 +114,7 @@ class _ContactFormState extends State<ContactForm> {
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _dateMet,
+      initialDate: _dateMet ?? DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
       builder: (context, child) => Theme(
@@ -361,10 +363,27 @@ class _ContactFormState extends State<ContactForm> {
                           Border.all(color: const Color(0xFF333333)),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(
-                      DateFormat.yMMMd().format(_dateMet),
-                      style:
-                          const TextStyle(color: Color(0xFFe2e8f0)),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _dateMet != null
+                                ? DateFormat.yMMMd().format(_dateMet!)
+                                : 'Unknown — tap to set',
+                            style: TextStyle(
+                              color: _dateMet != null
+                                  ? const Color(0xFFe2e8f0)
+                                  : const Color(0xFF6b7280),
+                            ),
+                          ),
+                        ),
+                        if (_dateMet != null)
+                          GestureDetector(
+                            onTap: () => setState(() => _dateMet = null),
+                            child: const Icon(Icons.clear,
+                                color: Color(0xFF6b7280), size: 16),
+                          ),
+                      ],
                     ),
                   ),
                 ),

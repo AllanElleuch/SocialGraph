@@ -86,10 +86,11 @@ Contact mergeContacts(Contact primary, List<Contact> others) {
   final lng =
       _preferNonNullDouble(primary.lng, others.map((c) => c.lng).toList());
 
-  // dateMet: earliest among inputs.
-  DateTime dateMet = primary.dateMet;
+  // dateMet: earliest among inputs (null = unknown; a known date wins over null).
+  DateTime? dateMet = primary.dateMet;
   for (final c in all) {
-    if (c.dateMet.isBefore(dateMet)) dateMet = c.dateMet;
+    final d = c.dateMet;
+    if (d != null && (dateMet == null || d.isBefore(dateMet))) dateMet = d;
   }
 
   // lastInteraction: latest among inputs.
