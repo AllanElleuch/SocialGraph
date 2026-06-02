@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -44,13 +46,25 @@ class CloudBackup {
 /// Snapshots live under `users/{uid}/backups/{autoId}`, separate from the live
 /// `users/{uid}` sync document, so creating or restoring a backup never races
 /// with ordinary sync. No Firestore access happens at construction time.
+///
+/// Firestore caps a single document at 1 MiB. A snapshot of a large address
+/// book (especially with embedded photo thumbnails) easily exceeds that, which
+/// Firestore reports as `invalid-argument`. To stay under the cap, the contact
+/// payload is split across documents in a `chunks` subcollection rather than
+/// stored inline in the parent metadata document.
 class CloudBackupService {
   CloudBackupService({FirebaseFirestore? firestore}) : _firestore = firestore;
 
   final FirebaseFirestore? _firestore;
 
-  /// Current backup document schema version.
-  static const int currentVersion = 1;
+  /// Current backup document schema version. v2 splits contacts into a `chunks`
+  /// subcollection; v1 stored them inline in the parent document.
+  static const int currentVersion = 2;
+
+  /// Target maximum encoded size of the contacts payload per chunk document, in
+  /// bytes. Kept well under Firestore's 1 MiB hard limit to leave headroom for
+  /// field-name and array-index overhead the SDK adds on top of the JSON bytes.
+  static const int _maxChunkBytes = 700 * 1024;
 
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
@@ -88,6 +102,11 @@ class CloudBackupService {
       _db.collection('users').doc(uid).collection('backups');
 
   /// Captures [contacts] as a new snapshot and returns its document id.
+  ///
+  /// Contacts are written to a `chunks` subcollection in size-bounded slices so
+  /// no single document approaches Firestore's 1 MiB limit. The parent metadata
+  /// document is written last: until it exists the backup does not appear in
+  /// [listBackups], so a partial write never surfaces as a usable snapshot.
   Future<String> createBackup(
     String uid,
     List<Contact> contacts, {
@@ -95,20 +114,27 @@ class CloudBackupService {
   }) async {
     final labelSuffix =
         (label != null && label.trim().isNotEmpty) ? ' "${label.trim()}"' : '';
-    final path = _path(uid);
+    final doc = _backups(uid).doc();
+    final path = _path(uid, doc.id);
+    final chunks = _chunkContacts(contacts);
     debugPrint('$_logTag: creating backup$labelSuffix at $path '
-        '(${contacts.length} contacts)…');
+        '(${contacts.length} contacts in ${chunks.length} chunk(s))…');
     final stopwatch = Stopwatch()..start();
     try {
-      final doc = await _backups(uid).add({
+      final chunksRef = doc.collection('chunks');
+      for (var i = 0; i < chunks.length; i++) {
+        await chunksRef.doc(_chunkId(i)).set({'contacts': chunks[i]});
+      }
+      await doc.set({
         'version': currentVersion,
         'createdAt': FieldValue.serverTimestamp(),
         'contactCount': contacts.length,
+        'chunkCount': chunks.length,
         if (label != null && label.trim().isNotEmpty) 'label': label.trim(),
-        'contacts': contacts.map((c) => c.toJson()).toList(),
       });
-      debugPrint('$_logTag: backup created at $path/${doc.id} '
-          '(${contacts.length} contacts, ${stopwatch.elapsedMilliseconds}ms)');
+      debugPrint('$_logTag: backup created at $path '
+          '(${contacts.length} contacts, ${chunks.length} chunk(s), '
+          '${stopwatch.elapsedMilliseconds}ms)');
       return doc.id;
     } catch (e) {
       debugPrint('$_logTag: createBackup FAILED at $path after '
@@ -116,6 +142,31 @@ class CloudBackupService {
       throw CloudBackupException('Failed to create backup: $e');
     }
   }
+
+  /// Splits [contacts] into slices whose encoded JSON stays under
+  /// [_maxChunkBytes]. A single contact larger than the budget still gets its
+  /// own (over-budget) chunk rather than being dropped.
+  List<List<Map<String, dynamic>>> _chunkContacts(List<Contact> contacts) {
+    final chunks = <List<Map<String, dynamic>>>[];
+    var current = <Map<String, dynamic>>[];
+    var currentBytes = 0;
+    for (final contact in contacts) {
+      final json = contact.toJson();
+      final bytes = utf8.encode(jsonEncode(json)).length;
+      if (current.isNotEmpty && currentBytes + bytes > _maxChunkBytes) {
+        chunks.add(current);
+        current = <Map<String, dynamic>>[];
+        currentBytes = 0;
+      }
+      current.add(json);
+      currentBytes += bytes;
+    }
+    if (current.isNotEmpty) chunks.add(current);
+    return chunks;
+  }
+
+  /// Zero-padded chunk document id so lexical ordering matches write order.
+  String _chunkId(int index) => index.toString().padLeft(6, '0');
 
   /// Lists the user's backups, newest first. Returns `[]` when none exist.
   Future<List<CloudBackup>> listBackups(String uid) async {
@@ -142,12 +193,17 @@ class CloudBackupService {
     debugPrint('$_logTag: restoring backup at $path…');
     final stopwatch = Stopwatch()..start();
     try {
-      final snapshot = await _backups(uid).doc(backupId).get();
+      final doc = _backups(uid).doc(backupId);
+      final snapshot = await doc.get();
       if (!snapshot.exists) {
         debugPrint('$_logTag: restore failed — no document at $path');
         throw const CloudBackupException('That backup no longer exists.');
       }
-      final contacts = _contactsFromData(snapshot.data());
+      // Legacy (v1) backups stored contacts inline; v2+ stores them in chunks.
+      final data = snapshot.data();
+      final contacts = data != null && data['contacts'] is List
+          ? _contactsFromData(data)
+          : await _contactsFromChunks(doc);
       debugPrint('$_logTag: restored ${contacts.length} contacts from '
           '$path (${stopwatch.elapsedMilliseconds}ms)');
       return contacts;
@@ -160,13 +216,21 @@ class CloudBackupService {
     }
   }
 
-  /// Permanently removes the snapshot [backupId].
+  /// Permanently removes the snapshot [backupId], including its `chunks`
+  /// subcollection (deleting a document does not cascade to subcollections in
+  /// Firestore, so chunks must be removed explicitly to avoid orphans).
   Future<void> deleteBackup(String uid, String backupId) async {
     final path = _path(uid, backupId);
     debugPrint('$_logTag: deleting backup at $path…');
     try {
-      await _backups(uid).doc(backupId).delete();
-      debugPrint('$_logTag: deleted backup at $path');
+      final doc = _backups(uid).doc(backupId);
+      final chunks = await doc.collection('chunks').get();
+      for (final chunk in chunks.docs) {
+        await chunk.reference.delete();
+      }
+      await doc.delete();
+      debugPrint('$_logTag: deleted backup at $path '
+          '(${chunks.docs.length} chunk(s))');
     } catch (e) {
       debugPrint('$_logTag: deleteBackup FAILED at $path: ${_explain(e, path)}');
       throw CloudBackupException('Failed to delete backup: $e');
@@ -184,6 +248,18 @@ class CloudBackupService {
       contactCount: (data['contactCount'] as num?)?.toInt() ?? 0,
       label: data['label'] as String?,
     );
+  }
+
+  /// Reads and concatenates the contacts stored across a backup's `chunks`
+  /// subcollection, ordered by chunk document id (which encodes write order).
+  Future<List<Contact>> _contactsFromChunks(
+    DocumentReference<Map<String, dynamic>> doc,
+  ) async {
+    final snapshot =
+        await doc.collection('chunks').orderBy(FieldPath.documentId).get();
+    return snapshot.docs
+        .expand((chunk) => _contactsFromData(chunk.data()))
+        .toList();
   }
 
   List<Contact> _contactsFromData(Map<String, dynamic>? data) {
