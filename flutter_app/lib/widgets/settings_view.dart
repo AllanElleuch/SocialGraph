@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Version of the bundled legal documents (privacy policy + terms of use).
@@ -37,11 +38,23 @@ class SettingsView extends StatelessWidget {
   /// Opens the cloud backups manager. Null hides the entry (cloud disabled).
   final VoidCallback? onCloudBackups;
 
+  /// Starts the sign-in flow. Null hides the Account section (cloud disabled).
+  final VoidCallback? onSignIn;
+
+  /// Signs the user out. Null hides the Account section (cloud disabled).
+  final VoidCallback? onSignOut;
+
+  /// Whether a user is currently signed in (drives the Account tile label).
+  final bool isSignedIn;
+
   const SettingsView({
     super.key,
     this.onExportBackup,
     this.onImportBackup,
     this.onCloudBackups,
+    this.onSignIn,
+    this.onSignOut,
+    this.isSignedIn = false,
   });
 
   /// Pushes the Settings page as a full-screen route.
@@ -50,6 +63,9 @@ class SettingsView extends StatelessWidget {
     VoidCallback? onExportBackup,
     VoidCallback? onImportBackup,
     VoidCallback? onCloudBackups,
+    VoidCallback? onSignIn,
+    VoidCallback? onSignOut,
+    bool isSignedIn = false,
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -57,6 +73,9 @@ class SettingsView extends StatelessWidget {
           onExportBackup: onExportBackup,
           onImportBackup: onImportBackup,
           onCloudBackups: onCloudBackups,
+          onSignIn: onSignIn,
+          onSignOut: onSignOut,
+          isSignedIn: isSignedIn,
         ),
       ),
     );
@@ -64,6 +83,8 @@ class SettingsView extends StatelessWidget {
 
   bool get _hasBackups =>
       onCloudBackups != null || onExportBackup != null || onImportBackup != null;
+
+  bool get _hasAccount => onSignIn != null || onSignOut != null;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +98,22 @@ class SettingsView extends StatelessWidget {
       ),
       body: ListView(
         children: [
+          if (_hasAccount) ...[
+            const _SectionHeader('Account'),
+            _SettingsTile(
+              icon: isSignedIn ? Icons.logout : Icons.login,
+              title: isSignedIn ? 'Sign out' : 'Sign in to sync',
+              subtitle: isSignedIn
+                  ? 'Stop syncing on this device'
+                  : 'Sync your contacts across devices',
+              onTap: () {
+                // Return to the app first so it reflects the new auth state,
+                // then run the action (which may push its own screen/snackbar).
+                Navigator.of(context).pop();
+                (isSignedIn ? onSignOut : onSignIn)?.call();
+              },
+            ),
+          ],
           if (_hasBackups) ...[
             const _SectionHeader('Data & Backups'),
             if (onCloudBackups != null)
@@ -127,18 +164,47 @@ class SettingsView extends StatelessWidget {
             icon: Icons.mail_outline,
             title: 'Contact us',
             subtitle: supportEmail,
-            onTap: () => _launch(
-              Uri(scheme: 'mailto', path: supportEmail),
-            ),
+            onTap: () => _contactSupport(context),
           ),
           const SizedBox(height: 24),
-          Center(
-            child: Text(
-              'Legal documents v$legalDocsVersion · $legalDocsEffective',
-              style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
-            ),
-          ),
+          const _SettingsFooter(),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+/// Footer with the copyright line and the app version/build number.
+class _SettingsFooter extends StatelessWidget {
+  const _SettingsFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    final year = DateTime.now().year;
+    return Center(
+      child: Column(
+        children: [
+          FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final info = snapshot.data;
+              // e.g. "Version 1.0.0 (2)"; falls back to the legal docs version
+              // when package info is unavailable (e.g. in unit tests).
+              final label = info != null
+                  ? 'Version ${info.version} (${info.buildNumber})'
+                  : 'Version $legalDocsVersion';
+              return Text(
+                label,
+                style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '© $year Codelio. All rights reserved.',
+            style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
+          ),
         ],
       ),
     );
@@ -198,6 +264,35 @@ class _SettingsTile extends StatelessWidget {
 Future<void> _launch(Uri uri) async {
   if (await canLaunchUrl(uri)) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
+/// Opens the user's mail app composing to the support address. Tries to launch
+/// directly (don't gate on `canLaunchUrl`, which returns false on devices with
+/// no configured mail client) and, if that fails, copies the address to the
+/// clipboard with a clear message so the tap is never a silent no-op.
+Future<void> _contactSupport(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final uri = Uri(
+    scheme: 'mailto',
+    path: supportEmail,
+    query: 'subject=${Uri.encodeComponent('Social Graph support')}',
+  );
+
+  var opened = false;
+  try {
+    opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    opened = false;
+  }
+
+  if (!opened) {
+    await Clipboard.setData(const ClipboardData(text: supportEmail));
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('No mail app found. Address copied: $supportEmail'),
+      ),
+    );
   }
 }
 

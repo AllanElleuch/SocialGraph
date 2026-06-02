@@ -20,10 +20,11 @@ class MapView extends StatefulWidget {
 }
 
 class _MapViewState extends State<MapView> {
-  // World-ish starting view until we have a reason to move the camera.
+  // Start fully zoomed out (whole world) until we have a reason to move the
+  // camera. zoom 0 is MapKit's minimum / most zoomed-out level.
   static const CameraPosition _initialCamera = CameraPosition(
-    target: LatLng(20, 0),
-    zoom: 1,
+    target: LatLng(0, 0),
+    zoom: 0,
   );
 
   // Zoom level used when recentering on the device location (street level).

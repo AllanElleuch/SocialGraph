@@ -211,6 +211,9 @@ class _HomePageState extends State<HomePage> {
       onExportBackup: _exportBackup,
       onImportBackup: _importBackup,
       onCloudBackups: _cloudEnabled ? () => _openCloudBackups() : null,
+      onSignIn: _cloudEnabled ? () => _openSignIn() : null,
+      onSignOut: _cloudEnabled ? () => _signOut() : null,
+      isSignedIn: _signedIn,
     );
   }
 
@@ -649,10 +652,6 @@ class _HomePageState extends State<HomePage> {
                           _openNeedsAttention();
                         case 'duplicates':
                           _reviewDuplicates();
-                        case 'signin':
-                          _openSignIn();
-                        case 'signout':
-                          _signOut();
                       }
                     },
                     itemBuilder: (ctx) => [
@@ -666,14 +665,6 @@ class _HomePageState extends State<HomePage> {
                         child: Text('Review duplicates',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
-                      if (_cloudEnabled)
-                        PopupMenuItem(
-                          value: _signedIn ? 'signout' : 'signin',
-                          child: Text(
-                            _signedIn ? 'Sign out' : 'Sign in to sync',
-                            style: const TextStyle(color: Color(0xFF818cf8)),
-                          ),
-                        ),
                     ],
                   ),
                 ],

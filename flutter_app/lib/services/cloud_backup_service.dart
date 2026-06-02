@@ -62,6 +62,28 @@ class CloudBackupService {
   String _shortUid(String uid) =>
       uid.length <= 6 ? uid : '${uid.substring(0, 6)}…';
 
+  /// The Firestore path a backup operation touches, for logging. [backupId] is
+  /// appended when the op targets a single snapshot. The uid is shortened so we
+  /// never log a full identifier.
+  String _path(String uid, [String? backupId]) {
+    final base = 'users/${_shortUid(uid)}/backups';
+    return backupId == null ? base : '$base/$backupId';
+  }
+
+  /// Annotates a Firestore error with a targeted hint when it is a
+  /// permission-denied failure, so the console points straight at the cause:
+  /// security rules that don't grant the signed-in user access to [path].
+  String _explain(Object error, String path) {
+    final text = error.toString();
+    if (text.contains('permission-denied')) {
+      return '$text\n  ↳ Firestore security rules deny access to "$path". '
+          'The signed-in user can reach users/{uid} but NOT the backups '
+          'subcollection — deploy firestore.rules '
+          '(`firebase deploy --only firestore:rules`).';
+    }
+    return text;
+  }
+
   CollectionReference<Map<String, dynamic>> _backups(String uid) =>
       _db.collection('users').doc(uid).collection('backups');
 
