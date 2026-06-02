@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'models/contact.dart';
-import 'services/contact_service.dart';
 import 'services/contacts_import_service.dart';
 import 'services/contact_repository.dart';
 import 'services/contact_search.dart';
@@ -64,7 +63,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final ContactService _service = ContactService();
   final ContactsImportService _importService = ContactsImportService();
   final ContactRepository _repository = ContactRepository();
   final AuthService _auth = AuthService();
@@ -89,17 +87,16 @@ class _HomePageState extends State<HomePage> {
     _loadContacts();
   }
 
-  /// Local-first load: render the cached list immediately, then refresh from
-  /// the server in the background and reconcile + persist.
+  /// Local-first load: render the cached list immediately, then reconcile with
+  /// the signed-in user's cloud copy and persist.
   Future<void> _loadContacts() async {
     final cached = await _repository.load();
-    if (cached.isNotEmpty && mounted) {
+    if (mounted) {
       setState(() {
         _contacts = cached;
         _loading = false;
       });
     }
-    await _refreshFromServer(local: cached);
     await _syncWithCloud();
     await _notifyOverdue();
   }
@@ -128,35 +125,6 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       debugPrint('Notification scheduling failed: $e');
     }
-  }
-
-  Future<void> _refreshFromServer({List<Contact>? local}) async {
-    final localList = local ?? _contacts;
-    try {
-      final server = await _service.fetchContacts();
-      final merged = _reconcile(local: localList, server: server);
-      if (mounted) {
-        setState(() {
-          _contacts = merged;
-          _loading = false;
-        });
-      }
-      await _repository.save(merged);
-    } catch (e) {
-      debugPrint('Failed to fetch contacts: $e');
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  /// Last-write-wins reconciliation (U4.3): the server is authoritative for
-  /// shared ids; locally-added contacts not yet known to the server are kept.
-  List<Contact> _reconcile({
-    required List<Contact> local,
-    required List<Contact> server,
-  }) {
-    final serverIds = server.map((c) => c.id).toSet();
-    final localOnly = local.where((c) => !serverIds.contains(c.id));
-    return [...server, ...localOnly];
   }
 
   Future<void> _persist() async {
@@ -189,8 +157,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Applies a logged interaction to the selected contact, persists, and
-  /// best-effort syncs to the server.
+  /// Applies a logged interaction to the selected contact and persists locally
+  /// (and to the cloud when signed in).
   void _onLogInteraction(InteractionEvent event) {
     final c = _selectedContact;
     if (c == null) return;
@@ -200,7 +168,6 @@ class _HomePageState extends State<HomePage> {
       if (idx >= 0) _contacts = [..._contacts]..[idx] = updated;
       _selectedContact = updated;
     });
-    unawaited(_service.updateContact(updated).catchError((_) => updated));
     unawaited(_persist());
   }
 
@@ -223,10 +190,6 @@ class _HomePageState extends State<HomePage> {
       }
     });
     unawaited(_persist());
-    unawaited(_service.updateContact(merged).catchError((_) => merged));
-    for (final id in mergedAwayIds) {
-      unawaited(_service.deleteContact(id).catchError((_) {}));
-    }
   }
 
   void _reviewDuplicates() {
@@ -377,33 +340,20 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  /// Upserts [contact] into the local list and persists locally (and to the
+  /// cloud when signed in).
   Future<void> _onFormSave(Contact contact) async {
-    try {
+    setState(() {
       if (_editingContact != null) {
-        await _service.updateContact(contact);
-      } else {
-        await _service.addContact(contact);
-      }
-      await _refreshFromServer();
-    } catch (e) {
-      // Offline fallback: update local list directly
-      setState(() {
-        if (_editingContact != null) {
-          final idx = _contacts.indexWhere((c) => c.id == contact.id);
-          if (idx >= 0) {
-            _contacts = [..._contacts]..[idx] = contact;
-          }
-        } else {
-          _contacts = [..._contacts, contact];
+        final idx = _contacts.indexWhere((c) => c.id == contact.id);
+        if (idx >= 0) {
+          _contacts = [..._contacts]..[idx] = contact;
         }
-      });
-      unawaited(_persist());
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved locally (server unavailable)')),
-        );
+      } else {
+        _contacts = [..._contacts, contact];
       }
-    }
+    });
+    unawaited(_persist());
     _closeForm();
   }
 
@@ -443,33 +393,13 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // Persist to the backend; fall back to local state if it is unreachable.
-      var serverOk = true;
-      final localAdds = <Contact>[];
-      var added = 0;
-      for (final contact in toAdd) {
-        if (serverOk) {
-          try {
-            await _service.addContact(contact);
-            added++;
-            continue;
-          } catch (_) {
-            serverOk = false;
-          }
-        }
-        localAdds.add(contact);
-        added++;
-      }
-
-      if (serverOk) {
-        await _refreshFromServer();
-      } else {
-        setState(() => _contacts = [..._contacts, ...localAdds]);
-        unawaited(_persist());
-      }
+      // Add to the local list and persist (cloud push happens when signed in).
+      setState(() => _contacts = [..._contacts, ...toAdd]);
+      unawaited(_persist());
 
       if (!mounted) return;
-      _showSnack('Imported $added contact${added == 1 ? '' : 's'}');
+      _showSnack('Imported ${toAdd.length} '
+          'contact${toAdd.length == 1 ? '' : 's'}');
 
       // Offer to merge any duplicates the import may have introduced.
       final groups = findDuplicateGroups(_contacts);

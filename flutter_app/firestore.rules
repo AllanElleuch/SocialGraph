@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Security rules for SocialGraph (project: socialgraph-69110).
+//
+// Data model:
+//   users/{uid}                     -> cloud sync document (contacts array)
+//   users/{uid}/backups/{backupId}  -> cloud backup snapshots
+//
+// A signed-in user (anonymous or email/password) may read and write ONLY their
+// own data. Everything else is denied by default.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: the request is authenticated as the owner of {userId}.
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // Backup snapshots inherit the same per-user ownership rule.
+      match /backups/{backupId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}
