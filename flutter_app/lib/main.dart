@@ -214,7 +214,48 @@ class _HomePageState extends State<HomePage> {
       onSignIn: _cloudEnabled ? () => _openSignIn() : null,
       onSignOut: _cloudEnabled ? () => _signOut() : null,
       isSignedIn: _signedIn,
+      onDeleteAllContacts: () => _deleteAllContacts(),
+      onDeleteAccount: _signedIn ? () => _deleteAccount() : null,
     );
+  }
+
+  /// Removes every contact from the device, and from the cloud sync copy when
+  /// signed in (an empty push overwrites the remote `contacts` array). The
+  /// confirmation prompt lives in [SettingsView]; this runs only post-confirm.
+  Future<void> _deleteAllContacts() async {
+    setState(() {
+      _contacts = [];
+      _selectedContact = null;
+    });
+    await _persist();
+    if (mounted) _showSnack('All contacts deleted');
+  }
+
+  /// Permanently deletes the signed-in user's account along with their cloud
+  /// data (backups + sync document) and the local cache. Cloud data is removed
+  /// before the auth account, since once the account is gone the user is no
+  /// longer authorized to delete their Firestore documents.
+  Future<void> _deleteAccount() async {
+    final uid = _auth.currentUser?.uid;
+    try {
+      if (uid != null) {
+        await _cloudBackup.deleteAllBackups(uid);
+        await _cloud.deleteUserData(uid);
+      }
+      await _auth.deleteAccount();
+      await _repository.clear();
+      if (mounted) {
+        setState(() {
+          _contacts = [];
+          _selectedContact = null;
+        });
+        _showSnack('Account deleted');
+      }
+    } on AuthException catch (e) {
+      if (mounted) _showSnack(e.message);
+    } catch (e) {
+      if (mounted) _showSnack('Could not delete account: $e');
+    }
   }
 
   void _openNeedsAttention() {

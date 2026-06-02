@@ -265,6 +265,20 @@ class CloudBackupService {
     }
   }
 
+  /// Deletes every backup snapshot for [uid], including each snapshot's
+  /// `chunks` subcollection. Used when wiping a user's cloud data (e.g. account
+  /// deletion). Returns the number of snapshots removed.
+  Future<int> deleteAllBackups(String uid) async {
+    final path = _path(uid);
+    debugPrint('$_logTag: deleting ALL backups at $path…');
+    final backups = await listBackups(uid);
+    for (final backup in backups) {
+      await deleteBackup(uid, backup.id);
+    }
+    debugPrint('$_logTag: deleted ${backups.length} backup(s) at $path');
+    return backups.length;
+  }
+
   CloudBackup _backupFromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {

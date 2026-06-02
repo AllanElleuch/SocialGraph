@@ -20,9 +20,11 @@ const String supportEmail = 'contact@codelio.fr';
 
 class _Palette {
   static const Color background = Color(0xFF0A0A0A);
+  static const Color surface = Color(0xFF1A1A1A);
   static const Color accent = Color(0xFF818CF8);
   static const Color textPrimary = Color(0xFFE2E8F0);
   static const Color textMuted = Color(0xFF9CA3AF);
+  static const Color danger = Color(0xFFEF4444);
 }
 
 /// A full-screen Settings page exposing the App's legal documents and support
@@ -47,6 +49,14 @@ class SettingsView extends StatelessWidget {
   /// Whether a user is currently signed in (drives the Account tile label).
   final bool isSignedIn;
 
+  /// Deletes every contact from the device (and the cloud copy when signed in)
+  /// after the user confirms. Null hides the entry.
+  final VoidCallback? onDeleteAllContacts;
+
+  /// Permanently deletes the signed-in user's account and cloud data after the
+  /// user confirms. Null hides the entry (e.g. when signed out).
+  final VoidCallback? onDeleteAccount;
+
   const SettingsView({
     super.key,
     this.onExportBackup,
@@ -55,6 +65,8 @@ class SettingsView extends StatelessWidget {
     this.onSignIn,
     this.onSignOut,
     this.isSignedIn = false,
+    this.onDeleteAllContacts,
+    this.onDeleteAccount,
   });
 
   /// Pushes the Settings page as a full-screen route.
@@ -66,6 +78,8 @@ class SettingsView extends StatelessWidget {
     VoidCallback? onSignIn,
     VoidCallback? onSignOut,
     bool isSignedIn = false,
+    VoidCallback? onDeleteAllContacts,
+    VoidCallback? onDeleteAccount,
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -76,6 +90,8 @@ class SettingsView extends StatelessWidget {
           onSignIn: onSignIn,
           onSignOut: onSignOut,
           isSignedIn: isSignedIn,
+          onDeleteAllContacts: onDeleteAllContacts,
+          onDeleteAccount: onDeleteAccount,
         ),
       ),
     );
@@ -85,6 +101,76 @@ class SettingsView extends StatelessWidget {
       onCloudBackups != null || onExportBackup != null || onImportBackup != null;
 
   bool get _hasAccount => onSignIn != null || onSignOut != null;
+
+  bool get _hasDangerZone =>
+      onDeleteAllContacts != null || onDeleteAccount != null;
+
+  Future<void> _confirmDeleteContacts(BuildContext context) async {
+    final confirmed = await _confirmDestructive(
+      context,
+      title: 'Delete all contacts?',
+      message: isSignedIn
+          ? 'This permanently removes every contact from this device and your '
+              'cloud copy. This cannot be undone.'
+          : 'This permanently removes every contact from this device. This '
+              'cannot be undone.',
+      confirmLabel: 'Delete all',
+    );
+    if (confirmed == true) onDeleteAllContacts?.call();
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    // Account deletion is irreversible and wipes cloud data, so require the
+    // user to type a confirmation word rather than a single tap.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _TypedConfirmDialog(
+        title: 'Delete account?',
+        message: 'This permanently deletes your account and everything stored '
+            'in the cloud, including backups. Contacts on this device are '
+            'removed too. This cannot be undone.',
+        confirmWord: 'DELETE',
+        confirmLabel: 'Delete account',
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    // Leave Settings so the app reflects the signed-out state after deletion.
+    Navigator.of(context).pop();
+    onDeleteAccount?.call();
+  }
+
+  /// Shows a destructive confirmation dialog and resolves to true only when the
+  /// user taps the confirm action.
+  Future<bool?> _confirmDestructive(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _Palette.surface,
+        title: Text(title,
+            style: const TextStyle(color: _Palette.textPrimary, fontSize: 16)),
+        content: Text(message,
+            style: const TextStyle(color: _Palette.textMuted, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel',
+                style: TextStyle(color: _Palette.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(confirmLabel,
+                style: const TextStyle(color: _Palette.danger)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +252,27 @@ class SettingsView extends StatelessWidget {
             subtitle: supportEmail,
             onTap: () => _contactSupport(context),
           ),
+          if (_hasDangerZone) ...[
+            const _SectionHeader('Danger Zone'),
+            if (onDeleteAllContacts != null)
+              _SettingsTile(
+                icon: Icons.delete_sweep_outlined,
+                title: 'Delete all contacts',
+                subtitle: isSignedIn
+                    ? 'Remove every contact from this device and the cloud'
+                    : 'Remove every contact from this device',
+                destructive: true,
+                onTap: () => _confirmDeleteContacts(context),
+              ),
+            if (onDeleteAccount != null)
+              _SettingsTile(
+                icon: Icons.no_accounts_outlined,
+                title: 'Delete account',
+                subtitle: 'Permanently delete your account and cloud data',
+                destructive: true,
+                onTap: () => _confirmDeleteAccount(context),
+              ),
+          ],
           const SizedBox(height: 24),
           const _SettingsFooter(),
           const SizedBox(height: 24),
@@ -239,18 +346,23 @@ class _SettingsTile extends StatelessWidget {
   final String? subtitle;
   final VoidCallback onTap;
 
+  /// Renders the icon and title in the danger color for destructive actions.
+  final bool destructive;
+
   const _SettingsTile({
     required this.icon,
     required this.title,
     required this.onTap,
     this.subtitle,
+    this.destructive = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = destructive ? _Palette.danger : _Palette.textPrimary;
     return ListTile(
-      leading: Icon(icon, color: _Palette.accent),
-      title: Text(title, style: const TextStyle(color: _Palette.textPrimary)),
+      leading: Icon(icon, color: destructive ? _Palette.danger : _Palette.accent),
+      title: Text(title, style: TextStyle(color: titleColor)),
       subtitle: subtitle == null
           ? null
           : Text(subtitle!,
@@ -258,6 +370,103 @@ class _SettingsTile extends StatelessWidget {
       trailing:
           const Icon(Icons.chevron_right, color: _Palette.textMuted, size: 20),
       onTap: onTap,
+    );
+  }
+}
+
+/// A confirmation dialog for an irreversible action that only enables its
+/// destructive button once the user types [confirmWord] exactly. Pops `true`
+/// on confirm and `false` (or via barrier dismiss) otherwise.
+class _TypedConfirmDialog extends StatefulWidget {
+  final String title;
+  final String message;
+  final String confirmWord;
+  final String confirmLabel;
+
+  const _TypedConfirmDialog({
+    required this.title,
+    required this.message,
+    required this.confirmWord,
+    required this.confirmLabel,
+  });
+
+  @override
+  State<_TypedConfirmDialog> createState() => _TypedConfirmDialogState();
+}
+
+class _TypedConfirmDialogState extends State<_TypedConfirmDialog> {
+  final TextEditingController _controller = TextEditingController();
+  bool _matches = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(() {
+      final matches = _controller.text.trim() == widget.confirmWord;
+      if (matches != _matches) setState(() => _matches = matches);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: _Palette.surface,
+      title: Text(widget.title,
+          style: const TextStyle(color: _Palette.textPrimary, fontSize: 16)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.message,
+              style: const TextStyle(color: _Palette.textMuted, fontSize: 13)),
+          const SizedBox(height: 16),
+          Text(
+            'Type ${widget.confirmWord} to confirm',
+            style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.characters,
+            style: const TextStyle(color: _Palette.textPrimary),
+            decoration: InputDecoration(
+              hintText: widget.confirmWord,
+              hintStyle: const TextStyle(color: _Palette.textMuted),
+              enabledBorder: const UnderlineInputBorder(
+                borderSide: BorderSide(color: _Palette.textMuted),
+              ),
+              focusedBorder: const UnderlineInputBorder(
+                borderSide: BorderSide(color: _Palette.danger),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child:
+              const Text('Cancel', style: TextStyle(color: _Palette.textMuted)),
+        ),
+        TextButton(
+          onPressed: _matches ? () => Navigator.of(context).pop(true) : null,
+          child: Text(
+            widget.confirmLabel,
+            style: TextStyle(
+              color: _matches ? _Palette.danger : _Palette.textMuted,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

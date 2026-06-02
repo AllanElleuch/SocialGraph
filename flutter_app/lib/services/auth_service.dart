@@ -77,6 +77,25 @@ class AuthService {
     }
   }
 
+  /// Permanently deletes the signed-in user's Firebase account, which also
+  /// signs them out. Throws an [AuthException] on failure — notably with the
+  /// 'requires-recent-login' message when the session is too old and the user
+  /// must sign in again before the account can be deleted.
+  Future<void> deleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw const AuthException('You are not signed in.');
+    }
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_messageForCode(e.code));
+    } catch (e) {
+      debugPrint('deleteAccount unexpected error: $e');
+      throw const AuthException('Something went wrong. Please try again.');
+    }
+  }
+
   /// Maps a [FirebaseAuthException] code to a user-friendly message.
   String _messageForCode(String code) {
     switch (code) {
@@ -96,6 +115,9 @@ class AuthService {
         return 'That password is too weak.';
       case 'operation-not-allowed':
         return 'This sign-in method is not enabled.';
+      case 'requires-recent-login':
+        return 'For your security, sign out and sign in again before '
+            'deleting your account.';
       case 'too-many-requests':
         return 'Too many attempts. Please try again later.';
       case 'network-request-failed':

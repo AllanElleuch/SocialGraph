@@ -192,6 +192,35 @@ void main() {
     );
   });
 
+  test('deleteAllBackups removes every snapshot and its chunks', () async {
+    final photo = Uint8List.fromList(List.filled(50 * 1024, 7));
+    final big = List.generate(
+      120,
+      (i) => makeContact(id: 'c$i', photoThumbnail: photo),
+    );
+    await service.createBackup(uid, [makeContact(id: 'a')]);
+    final chunkedId = await service.createBackup(uid, big);
+    await service.createBackup(uid, [makeContact(id: 'b')], label: 'tagged');
+
+    final removed = await service.deleteAllBackups(uid);
+
+    expect(removed, 3);
+    expect(await service.listBackups(uid), isEmpty);
+    // The chunked snapshot's subcollection must be gone too, not orphaned.
+    final chunks = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('backups')
+        .doc(chunkedId)
+        .collection('chunks')
+        .get();
+    expect(chunks.docs, isEmpty);
+  });
+
+  test('deleteAllBackups on a user with no backups is a no-op', () async {
+    expect(await service.deleteAllBackups(uid), 0);
+  });
+
   test('restoreBackup still reads legacy inline-contacts backups', () async {
     // Simulate a backup written by the old (pre-chunking) format: contacts
     // embedded directly in the parent document.

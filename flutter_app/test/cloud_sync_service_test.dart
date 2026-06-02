@@ -1,3 +1,4 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:social_graph/models/contact.dart';
 import 'package:social_graph/services/cloud_sync_service.dart';
@@ -144,6 +145,34 @@ void main() {
       final result = reconcileByUpdatedAt(local, remote);
 
       expect(result.map((c) => c.id).toList(), ['a', 'b', 'c', 'd']);
+    });
+  });
+
+  group('deleteUserData', () {
+    test('removes the user document so a later pull is empty', () async {
+      final firestore = FakeFirebaseFirestore();
+      final service = CloudSyncService(firestore: firestore);
+      await service.push('user-1', [makeContact(id: 'a')]);
+      expect(await service.pull('user-1'), hasLength(1));
+
+      await service.deleteUserData('user-1');
+
+      expect(await service.pull('user-1'), isEmpty);
+      final doc =
+          await firestore.collection('users').doc('user-1').get();
+      expect(doc.exists, isFalse);
+    });
+
+    test('only deletes the targeted user', () async {
+      final firestore = FakeFirebaseFirestore();
+      final service = CloudSyncService(firestore: firestore);
+      await service.push('alice', [makeContact(id: 'a')]);
+      await service.push('bob', [makeContact(id: 'b')]);
+
+      await service.deleteUserData('alice');
+
+      expect(await service.pull('alice'), isEmpty);
+      expect(await service.pull('bob'), hasLength(1));
     });
   });
 }

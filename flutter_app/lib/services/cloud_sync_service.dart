@@ -106,6 +106,20 @@ class CloudSyncService {
     }
   }
 
+  /// Permanently deletes the user's synced contacts document `users/{uid}`.
+  ///
+  /// This removes the top-level sync document only; subcollections such as
+  /// `backups` are not cascaded by Firestore and must be cleared separately
+  /// (see [CloudBackupService.deleteAllBackups]).
+  Future<void> deleteUserData(String uid) async {
+    try {
+      await _userDoc(uid).delete();
+      debugPrint('CloudSync: deleted user document for $uid');
+    } catch (e) {
+      throw CloudSyncException('Failed to delete data for $uid: $e');
+    }
+  }
+
   /// Streams the user's contacts as the document changes.
   Stream<List<Contact>> watch(String uid) {
     return _userDoc(uid).snapshots().map((snapshot) {
