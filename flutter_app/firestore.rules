@@ -16,13 +16,13 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    match /users/{userId} {
+    // The user's sync document AND everything beneath it (the backups
+    // subcollection, plus any future subcollections). The recursive {document=**}
+    // wildcard is what makes the rule apply to subcollections — a plain
+    // `match /users/{userId}` alone does NOT cover them, which is why a ruleset
+    // missing this denied users/{uid}/backups while allowing users/{uid}.
+    match /users/{userId}/{document=**} {
       allow read, write: if isOwner(userId);
-
-      // Backup snapshots inherit the same per-user ownership rule.
-      match /backups/{backupId} {
-        allow read, write: if isOwner(userId);
-      }
     }
   }
 }

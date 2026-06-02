@@ -189,10 +189,11 @@ class _SettingsFooter extends StatelessWidget {
             future: PackageInfo.fromPlatform(),
             builder: (context, snapshot) {
               final info = snapshot.data;
-              // e.g. "Version 1.0.0 (2)"; falls back to the legal docs version
-              // when package info is unavailable (e.g. in unit tests).
+              // pubspec `1.0.0+2` → version "1.0.0", build number / build
+              // offset "2". e.g. "Version 1.0.0 · Build 2". Falls back to the
+              // legal docs version when package info is unavailable (tests).
               final label = info != null
-                  ? 'Version ${info.version} (${info.buildNumber})'
+                  ? 'Version ${info.version} · Build ${info.buildNumber}'
                   : 'Version $legalDocsVersion';
               return Text(
                 label,

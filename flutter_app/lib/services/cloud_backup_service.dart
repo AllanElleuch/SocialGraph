@@ -95,7 +95,8 @@ class CloudBackupService {
   }) async {
     final labelSuffix =
         (label != null && label.trim().isNotEmpty) ? ' "${label.trim()}"' : '';
-    debugPrint('$_logTag: creating backup$labelSuffix for ${_shortUid(uid)} '
+    final path = _path(uid);
+    debugPrint('$_logTag: creating backup$labelSuffix at $path '
         '(${contacts.length} contacts)…');
     final stopwatch = Stopwatch()..start();
     try {
@@ -106,66 +107,68 @@ class CloudBackupService {
         if (label != null && label.trim().isNotEmpty) 'label': label.trim(),
         'contacts': contacts.map((c) => c.toJson()).toList(),
       });
-      debugPrint('$_logTag: backup created id=${doc.id} '
+      debugPrint('$_logTag: backup created at $path/${doc.id} '
           '(${contacts.length} contacts, ${stopwatch.elapsedMilliseconds}ms)');
       return doc.id;
     } catch (e) {
-      debugPrint('$_logTag: createBackup FAILED after '
-          '${stopwatch.elapsedMilliseconds}ms: $e');
+      debugPrint('$_logTag: createBackup FAILED at $path after '
+          '${stopwatch.elapsedMilliseconds}ms: ${_explain(e, path)}');
       throw CloudBackupException('Failed to create backup: $e');
     }
   }
 
   /// Lists the user's backups, newest first. Returns `[]` when none exist.
   Future<List<CloudBackup>> listBackups(String uid) async {
-    debugPrint('$_logTag: listing backups for ${_shortUid(uid)}…');
+    final path = _path(uid);
+    debugPrint('$_logTag: listing backups at $path…');
     final stopwatch = Stopwatch()..start();
     try {
       final snapshot =
           await _backups(uid).orderBy('createdAt', descending: true).get();
       final backups = snapshot.docs.map(_backupFromDoc).toList();
-      debugPrint('$_logTag: listed ${backups.length} backup(s) '
+      debugPrint('$_logTag: listed ${backups.length} backup(s) from $path '
           '(${stopwatch.elapsedMilliseconds}ms)');
       return backups;
     } catch (e) {
-      debugPrint('$_logTag: listBackups FAILED after '
-          '${stopwatch.elapsedMilliseconds}ms: $e');
+      debugPrint('$_logTag: listBackups FAILED at $path after '
+          '${stopwatch.elapsedMilliseconds}ms: ${_explain(e, path)}');
       throw CloudBackupException('Failed to list backups: $e');
     }
   }
 
   /// Loads the full contact list captured in the snapshot [backupId].
   Future<List<Contact>> restoreBackup(String uid, String backupId) async {
-    debugPrint('$_logTag: restoring backup id=$backupId '
-        'for ${_shortUid(uid)}…');
+    final path = _path(uid, backupId);
+    debugPrint('$_logTag: restoring backup at $path…');
     final stopwatch = Stopwatch()..start();
     try {
       final snapshot = await _backups(uid).doc(backupId).get();
       if (!snapshot.exists) {
-        debugPrint('$_logTag: restore failed — backup id=$backupId not found');
+        debugPrint('$_logTag: restore failed — no document at $path');
         throw const CloudBackupException('That backup no longer exists.');
       }
       final contacts = _contactsFromData(snapshot.data());
       debugPrint('$_logTag: restored ${contacts.length} contacts from '
-          'id=$backupId (${stopwatch.elapsedMilliseconds}ms)');
+          '$path (${stopwatch.elapsedMilliseconds}ms)');
       return contacts;
     } on CloudBackupException {
       rethrow;
     } catch (e) {
-      debugPrint('$_logTag: restoreBackup FAILED after '
-          '${stopwatch.elapsedMilliseconds}ms: $e');
+      debugPrint('$_logTag: restoreBackup FAILED at $path after '
+          '${stopwatch.elapsedMilliseconds}ms: ${_explain(e, path)}');
       throw CloudBackupException('Failed to restore backup: $e');
     }
   }
 
   /// Permanently removes the snapshot [backupId].
   Future<void> deleteBackup(String uid, String backupId) async {
-    debugPrint('$_logTag: deleting backup id=$backupId for ${_shortUid(uid)}…');
+    final path = _path(uid, backupId);
+    debugPrint('$_logTag: deleting backup at $path…');
     try {
       await _backups(uid).doc(backupId).delete();
-      debugPrint('$_logTag: deleted backup id=$backupId');
+      debugPrint('$_logTag: deleted backup at $path');
     } catch (e) {
-      debugPrint('$_logTag: deleteBackup FAILED for id=$backupId: $e');
+      debugPrint('$_logTag: deleteBackup FAILED at $path: ${_explain(e, path)}');
       throw CloudBackupException('Failed to delete backup: $e');
     }
   }
