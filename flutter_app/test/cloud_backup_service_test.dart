@@ -143,6 +143,55 @@ void main() {
     expect(chunks.docs, isEmpty);
   });
 
+  test('createBackup reports progress monotonically to completion', () async {
+    // A multi-chunk backup so progress advances through several steps.
+    final photo = Uint8List.fromList(List.filled(50 * 1024, 7));
+    final contacts = List.generate(
+      120,
+      (i) => makeContact(id: 'c$i', photoThumbnail: photo),
+    );
+
+    final events = <List<int>>[];
+    await service.createBackup(
+      uid,
+      contacts,
+      onProgress: (completed, total) => events.add([completed, total]),
+    );
+
+    expect(events, isNotEmpty);
+    final total = events.last.last;
+    // Total stays constant; completed climbs 1..total with no gaps and ends full.
+    expect(events.every((e) => e[1] == total), isTrue);
+    expect(
+      events.map((e) => e.first).toList(),
+      [for (var i = 1; i <= total; i++) i],
+    );
+  });
+
+  test('restoreBackup reports progress to completion', () async {
+    final photo = Uint8List.fromList(List.filled(50 * 1024, 7));
+    final contacts = List.generate(
+      120,
+      (i) => makeContact(id: 'c$i', photoThumbnail: photo),
+    );
+    final id = await service.createBackup(uid, contacts);
+
+    final events = <List<int>>[];
+    final restored = await service.restoreBackup(
+      uid,
+      id,
+      onProgress: (completed, total) => events.add([completed, total]),
+    );
+
+    expect(restored, hasLength(120));
+    expect(events, isNotEmpty);
+    final total = events.last.last;
+    expect(
+      events.map((e) => e.first).toList(),
+      [for (var i = 1; i <= total; i++) i],
+    );
+  });
+
   test('restoreBackup still reads legacy inline-contacts backups', () async {
     // Simulate a backup written by the old (pre-chunking) format: contacts
     // embedded directly in the parent document.

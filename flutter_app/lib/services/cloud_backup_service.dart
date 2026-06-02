@@ -5,6 +5,13 @@ import 'package:flutter/foundation.dart';
 
 import '../models/contact.dart';
 
+/// Reports incremental progress of a backup or restore as it advances through
+/// its discrete steps. [completed] is the number of steps finished so far and
+/// [total] is the step count for the whole operation, so `completed / total`
+/// is a 0..1 fraction suitable for a progress bar. [completed] rises
+/// monotonically and the final callback always has `completed == total`.
+typedef BackupProgress = void Function(int completed, int total);
+
 /// Thrown when a cloud backup operation fails.
 class CloudBackupException implements Exception {
   final String message;
@@ -111,12 +118,15 @@ class CloudBackupService {
     String uid,
     List<Contact> contacts, {
     String? label,
+    BackupProgress? onProgress,
   }) async {
     final labelSuffix =
         (label != null && label.trim().isNotEmpty) ? ' "${label.trim()}"' : '';
     final doc = _backups(uid).doc();
     final path = _path(uid, doc.id);
     final chunks = _chunkContacts(contacts);
+    // One step per chunk write plus a final step for the metadata document.
+    final totalSteps = chunks.length + 1;
     debugPrint('$_logTag: creating backup$labelSuffix at $path '
         '(${contacts.length} contacts in ${chunks.length} chunk(s))…');
     final stopwatch = Stopwatch()..start();
@@ -124,6 +134,7 @@ class CloudBackupService {
       final chunksRef = doc.collection('chunks');
       for (var i = 0; i < chunks.length; i++) {
         await chunksRef.doc(_chunkId(i)).set({'contacts': chunks[i]});
+        onProgress?.call(i + 1, totalSteps);
       }
       await doc.set({
         'version': currentVersion,
@@ -132,6 +143,7 @@ class CloudBackupService {
         'chunkCount': chunks.length,
         if (label != null && label.trim().isNotEmpty) 'label': label.trim(),
       });
+      onProgress?.call(totalSteps, totalSteps);
       debugPrint('$_logTag: backup created at $path '
           '(${contacts.length} contacts, ${chunks.length} chunk(s), '
           '${stopwatch.elapsedMilliseconds}ms)');
@@ -188,7 +200,15 @@ class CloudBackupService {
   }
 
   /// Loads the full contact list captured in the snapshot [backupId].
-  Future<List<Contact>> restoreBackup(String uid, String backupId) async {
+  ///
+  /// When [onProgress] is supplied, chunks are read one at a time so the caller
+  /// can advance a progress bar. This costs the same number of document reads
+  /// as the default batched query — only the number of round-trips differs.
+  Future<List<Contact>> restoreBackup(
+    String uid,
+    String backupId, {
+    BackupProgress? onProgress,
+  }) async {
     final path = _path(uid, backupId);
     debugPrint('$_logTag: restoring backup at $path…');
     final stopwatch = Stopwatch()..start();
@@ -201,9 +221,17 @@ class CloudBackupService {
       }
       // Legacy (v1) backups stored contacts inline; v2+ stores them in chunks.
       final data = snapshot.data();
-      final contacts = data != null && data['contacts'] is List
-          ? _contactsFromData(data)
-          : await _contactsFromChunks(doc);
+      final List<Contact> contacts;
+      if (data != null && data['contacts'] is List) {
+        contacts = _contactsFromData(data);
+        onProgress?.call(1, 1);
+      } else {
+        contacts = await _contactsFromChunks(
+          doc,
+          chunkCount: (data?['chunkCount'] as num?)?.toInt(),
+          onProgress: onProgress,
+        );
+      }
       debugPrint('$_logTag: restored ${contacts.length} contacts from '
           '$path (${stopwatch.elapsedMilliseconds}ms)');
       return contacts;
@@ -252,14 +280,31 @@ class CloudBackupService {
 
   /// Reads and concatenates the contacts stored across a backup's `chunks`
   /// subcollection, ordered by chunk document id (which encodes write order).
+  ///
+  /// With a known [chunkCount] and an [onProgress] callback, chunks are fetched
+  /// one at a time so progress can be reported per chunk; otherwise a single
+  /// ordered query is used (fewer round-trips, no granular progress).
   Future<List<Contact>> _contactsFromChunks(
-    DocumentReference<Map<String, dynamic>> doc,
-  ) async {
-    final snapshot =
-        await doc.collection('chunks').orderBy(FieldPath.documentId).get();
-    return snapshot.docs
+    DocumentReference<Map<String, dynamic>> doc, {
+    int? chunkCount,
+    BackupProgress? onProgress,
+  }) async {
+    final chunks = doc.collection('chunks');
+    if (onProgress != null && chunkCount != null && chunkCount > 0) {
+      final contacts = <Contact>[];
+      for (var i = 0; i < chunkCount; i++) {
+        final chunk = await chunks.doc(_chunkId(i)).get();
+        contacts.addAll(_contactsFromData(chunk.data()));
+        onProgress(i + 1, chunkCount);
+      }
+      return contacts;
+    }
+    final snapshot = await chunks.orderBy(FieldPath.documentId).get();
+    final contacts = snapshot.docs
         .expand((chunk) => _contactsFromData(chunk.data()))
         .toList();
+    onProgress?.call(1, 1);
+    return contacts;
   }
 
   List<Contact> _contactsFromData(Map<String, dynamic>? data) {

@@ -64,6 +64,20 @@ class _BackupViewState extends State<BackupView> {
   String? _error;
   bool _busy = false;
 
+  /// Current operation label (e.g. "Backing up…") shown above the progress bar,
+  /// or null when idle.
+  String? _progressLabel;
+
+  /// Fraction complete (0..1) of the running operation, or null for an
+  /// indeterminate bar (e.g. deletes, which aren't step-counted).
+  double? _progress;
+
+  /// Relays service progress into a determinate bar.
+  void _onProgress(int completed, int total) {
+    if (!mounted || total <= 0) return;
+    setState(() => _progress = completed / total);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -89,9 +103,17 @@ class _BackupViewState extends State<BackupView> {
 
   Future<void> _createBackup() async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _progressLabel = 'Backing up…';
+      _progress = 0;
+    });
     try {
-      await widget.service.createBackup(widget.uid, widget.contacts);
+      await widget.service.createBackup(
+        widget.uid,
+        widget.contacts,
+        onProgress: _onProgress,
+      );
       if (!mounted) return;
       _snack('Backed up ${widget.contacts.length} '
           'contact${widget.contacts.length == 1 ? '' : 's'}');
@@ -99,7 +121,13 @@ class _BackupViewState extends State<BackupView> {
     } catch (e) {
       if (mounted) _snack(_messageFor(e));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _progressLabel = null;
+          _progress = null;
+        });
+      }
     }
   }
 
@@ -114,10 +142,17 @@ class _BackupViewState extends State<BackupView> {
     );
     if (confirmed != true || _busy) return;
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _progressLabel = 'Restoring…';
+      _progress = 0;
+    });
     try {
-      final restored =
-          await widget.service.restoreBackup(widget.uid, backup.id);
+      final restored = await widget.service.restoreBackup(
+        widget.uid,
+        backup.id,
+        onProgress: _onProgress,
+      );
       if (!mounted) return;
       widget.onRestore(restored);
       _snack('Restored ${restored.length} '
@@ -125,7 +160,11 @@ class _BackupViewState extends State<BackupView> {
       Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        setState(() => _busy = false);
+        setState(() {
+          _busy = false;
+          _progressLabel = null;
+          _progress = null;
+        });
         _snack(_messageFor(e));
       }
     }
@@ -141,7 +180,13 @@ class _BackupViewState extends State<BackupView> {
     );
     if (confirmed != true || _busy) return;
 
-    setState(() => _busy = true);
+    // Deletes aren't step-counted, so the bar stays indeterminate (_progress
+    // null) while still showing a labelled busy state.
+    setState(() {
+      _busy = true;
+      _progressLabel = 'Deleting…';
+      _progress = null;
+    });
     try {
       await widget.service.deleteBackup(widget.uid, backup.id);
       if (mounted) _snack('Backup deleted');
@@ -149,7 +194,13 @@ class _BackupViewState extends State<BackupView> {
     } catch (e) {
       if (mounted) _snack(_messageFor(e));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _progressLabel = null;
+          _progress = null;
+        });
+      }
     }
   }
 
@@ -220,7 +271,8 @@ class _BackupViewState extends State<BackupView> {
             busy: _busy,
             onCreate: _createBackup,
           ),
-          if (_busy) const LinearProgressIndicator(minHeight: 2),
+          if (_busy)
+            _ProgressBar(label: _progressLabel, value: _progress),
           Expanded(
             child: backups == null
                 ? const Center(
@@ -310,6 +362,61 @@ class _CreateBar extends StatelessWidget {
             ),
             icon: const Icon(Icons.cloud_upload_outlined, size: 18),
             label: const Text('Back up'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A labelled progress strip shown beneath the create bar while a backup,
+/// restore, or delete is running. A null [value] renders an indeterminate bar
+/// (used for deletes); otherwise it fills from 0..1 and shows a percentage.
+class _ProgressBar extends StatelessWidget {
+  final String? label;
+  final double? value;
+
+  const _ProgressBar({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = value == null ? null : (value!.clamp(0, 1) * 100).round();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      decoration: const BoxDecoration(
+        color: _Palette.surface,
+        border: Border(bottom: BorderSide(color: _Palette.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label ?? 'Working…',
+                style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
+              ),
+              if (percent != null)
+                Text(
+                  '$percent%',
+                  style: const TextStyle(
+                    color: _Palette.textMuted,
+                    fontSize: 12,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 5,
+              backgroundColor: _Palette.border,
+              valueColor: const AlwaysStoppedAnimation<Color>(_Palette.accent),
+            ),
           ),
         ],
       ),
