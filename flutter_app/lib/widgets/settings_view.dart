@@ -28,14 +28,42 @@ class _Palette {
 /// contact. Documents are bundled as assets so they are available offline, and
 /// also link to their hosted Cloudflare Pages copies.
 class SettingsView extends StatelessWidget {
-  const SettingsView({super.key});
+  /// Opens the local backup export dialog. Null hides the entry.
+  final VoidCallback? onExportBackup;
+
+  /// Opens the local backup import dialog. Null hides the entry.
+  final VoidCallback? onImportBackup;
+
+  /// Opens the cloud backups manager. Null hides the entry (cloud disabled).
+  final VoidCallback? onCloudBackups;
+
+  const SettingsView({
+    super.key,
+    this.onExportBackup,
+    this.onImportBackup,
+    this.onCloudBackups,
+  });
 
   /// Pushes the Settings page as a full-screen route.
-  static Future<void> show(BuildContext context) {
+  static Future<void> show(
+    BuildContext context, {
+    VoidCallback? onExportBackup,
+    VoidCallback? onImportBackup,
+    VoidCallback? onCloudBackups,
+  }) {
     return Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SettingsView()),
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsView(
+          onExportBackup: onExportBackup,
+          onImportBackup: onImportBackup,
+          onCloudBackups: onCloudBackups,
+        ),
+      ),
     );
   }
+
+  bool get _hasBackups =>
+      onCloudBackups != null || onExportBackup != null || onImportBackup != null;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +77,30 @@ class SettingsView extends StatelessWidget {
       ),
       body: ListView(
         children: [
+          if (_hasBackups) ...[
+            const _SectionHeader('Data & Backups'),
+            if (onCloudBackups != null)
+              _SettingsTile(
+                icon: Icons.cloud_outlined,
+                title: 'Cloud backups',
+                subtitle: 'Save and restore from the cloud',
+                onTap: onCloudBackups!,
+              ),
+            if (onExportBackup != null)
+              _SettingsTile(
+                icon: Icons.upload_file_outlined,
+                title: 'Export backup',
+                subtitle: 'Copy your contacts as JSON',
+                onTap: onExportBackup!,
+              ),
+            if (onImportBackup != null)
+              _SettingsTile(
+                icon: Icons.download_outlined,
+                title: 'Import backup',
+                subtitle: 'Restore contacts from JSON',
+                onTap: onImportBackup!,
+              ),
+          ],
           const _SectionHeader('Legal'),
           _SettingsTile(
             icon: Icons.privacy_tip_outlined,

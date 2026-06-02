@@ -5,12 +5,14 @@ class Controls extends StatelessWidget {
   final PivotType pivot;
   final ValueChanged<PivotType> onPivotChanged;
   final VoidCallback onAddContact;
+  final VoidCallback onOpenSettings;
 
   const Controls({
     super.key,
     required this.pivot,
     required this.onPivotChanged,
     required this.onAddContact,
+    required this.onOpenSettings,
   });
 
   @override
@@ -44,6 +46,9 @@ class Controls extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ...buttons.map((btn) => _buildButton(btn)),
+              // Settings sits right after the view pivots (next to Timeline).
+              _buildIconButton(Icons.settings_outlined, onOpenSettings,
+                  tooltip: 'Settings'),
               Container(
                 width: 1,
                 height: 24,
@@ -99,6 +104,21 @@ class Controls extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  /// A non-toggle icon action (e.g. Settings) styled to match the bar.
+  Widget _buildIconButton(IconData icon, VoidCallback onTap,
+      {required String tooltip}) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Icon(icon, size: 18, color: const Color(0xFF9ca3af)),
         ),
       ),
     );

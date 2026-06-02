@@ -243,7 +243,12 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openSettings() {
-    SettingsView.show(context);
+    SettingsView.show(
+      context,
+      onExportBackup: _exportBackup,
+      onImportBackup: _importBackup,
+      onCloudBackups: _cloudEnabled ? () => _openCloudBackups() : null,
+    );
   }
 
   void _openNeedsAttention() {
@@ -551,6 +556,7 @@ class _HomePageState extends State<HomePage> {
             pivot: _pivot,
             onPivotChanged: (p) => setState(() => _pivot = p),
             onAddContact: _openAddForm,
+            onOpenSettings: _openSettings,
           ),
 
           // Contact Card
@@ -713,14 +719,6 @@ class _HomePageState extends State<HomePage> {
                           _openNeedsAttention();
                         case 'duplicates':
                           _reviewDuplicates();
-                        case 'export':
-                          _exportBackup();
-                        case 'import':
-                          _importBackup();
-                        case 'cloudbackups':
-                          _openCloudBackups();
-                        case 'settings':
-                          _openSettings();
                         case 'signin':
                           _openSignIn();
                         case 'signout':
@@ -736,27 +734,6 @@ class _HomePageState extends State<HomePage> {
                       const PopupMenuItem(
                         value: 'duplicates',
                         child: Text('Review duplicates',
-                            style: TextStyle(color: Color(0xFFe2e8f0))),
-                      ),
-                      const PopupMenuItem(
-                        value: 'export',
-                        child: Text('Export backup',
-                            style: TextStyle(color: Color(0xFFe2e8f0))),
-                      ),
-                      const PopupMenuItem(
-                        value: 'import',
-                        child: Text('Import backup',
-                            style: TextStyle(color: Color(0xFFe2e8f0))),
-                      ),
-                      if (_cloudEnabled)
-                        const PopupMenuItem(
-                          value: 'cloudbackups',
-                          child: Text('Cloud backups',
-                              style: TextStyle(color: Color(0xFFe2e8f0))),
-                        ),
-                      const PopupMenuItem(
-                        value: 'settings',
-                        child: Text('Settings',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
                       if (_cloudEnabled)
