@@ -14,6 +14,7 @@ import 'services/backup_service.dart';
 import 'services/reach_out_service.dart';
 import 'services/auth_service.dart';
 import 'services/cloud_sync_service.dart';
+import 'services/cloud_backup_service.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_bootstrap.dart';
 import 'widgets/graph_view.dart';
@@ -25,6 +26,7 @@ import 'widgets/timeline_view.dart';
 import 'widgets/merge_review_sheet.dart';
 import 'widgets/needs_attention_view.dart';
 import 'widgets/sign_in_screen.dart';
+import 'widgets/backup_view.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
 /// offline-first with no auth/cloud features (e.g. config files absent, tests).
@@ -66,6 +68,7 @@ class _HomePageState extends State<HomePage> {
   final ContactRepository _repository = ContactRepository();
   final AuthService _auth = AuthService();
   final CloudSyncService _cloud = CloudSyncService();
+  final CloudBackupService _cloudBackup = CloudBackupService();
   final NotificationService _notifications = NotificationService();
   List<Contact> _contacts = [];
 
@@ -314,6 +317,30 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Opens the cloud backup manager. Requires a signed-in user; prompts the
+  /// user to sign in first when cloud is enabled but they are signed out.
+  Future<void> _openCloudBackups() async {
+    if (!_signedIn) {
+      _showSnack('Sign in to sync to use cloud backups');
+      if (_cloudEnabled) await _openSignIn();
+      if (!_signedIn) return;
+    }
+    if (!mounted) return;
+    await BackupView.show(
+      context,
+      uid: _auth.currentUser!.uid,
+      contacts: _contacts,
+      service: _cloudBackup,
+      onRestore: (restored) {
+        setState(() {
+          _contacts = restored;
+          _selectedContact = null;
+        });
+        unawaited(_persist());
+      },
     );
   }
 
@@ -685,6 +712,8 @@ class _HomePageState extends State<HomePage> {
                           _exportBackup();
                         case 'import':
                           _importBackup();
+                        case 'cloudbackups':
+                          _openCloudBackups();
                         case 'signin':
                           _openSignIn();
                         case 'signout':
@@ -712,6 +741,12 @@ class _HomePageState extends State<HomePage> {
                         child: Text('Import backup',
                             style: TextStyle(color: Color(0xFFe2e8f0))),
                       ),
+                      if (_cloudEnabled)
+                        const PopupMenuItem(
+                          value: 'cloudbackups',
+                          child: Text('Cloud backups',
+                              style: TextStyle(color: Color(0xFFe2e8f0))),
+                        ),
                       if (_cloudEnabled)
                         PopupMenuItem(
                           value: _signedIn ? 'signout' : 'signin',

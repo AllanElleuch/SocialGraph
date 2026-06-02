@@ -106,18 +106,18 @@ class MapPainter extends CustomPainter {
 
     // Soft accuracy halo around the device location.
     final haloPaint = Paint()
-      ..color = const Color(0xFF3b82f6).withValues(alpha: 0.2);
-    canvas.drawCircle(pos, 16, haloPaint);
+      ..color = const Color(0xFF3b82f6).withValues(alpha: 0.25);
+    canvas.drawCircle(pos, 22, haloPaint);
 
     // White outer ring for contrast against any background.
     final ringPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(pos, 8, ringPaint);
+    canvas.drawCircle(pos, 10, ringPaint);
 
     // Solid blue dot marking "you are here".
     final dotPaint = Paint()..color = const Color(0xFF2563eb);
-    canvas.drawCircle(pos, 6, dotPaint);
+    canvas.drawCircle(pos, 7, dotPaint);
   }
 
   @override

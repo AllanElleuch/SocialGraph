@@ -30,7 +30,7 @@ class _MapViewState extends State<MapView>
   static const double _maxScale = 8.0;
 
   // Zoom level applied when centering on the device location.
-  static const double _focusScale = 5.0;
+  static const double _focusScale = 3.5;
 
   final TransformationController _transformController =
       TransformationController();
@@ -70,13 +70,19 @@ class _MapViewState extends State<MapView>
 
   /// Smoothly animates the viewport so [target] (scene coords) sits centered
   /// at [_focusScale] zoom.
+  ///
+  /// The matrix is built with explicit entries (scale on the diagonal,
+  /// translation in the last column) so the result is unambiguous: a scene
+  /// point P maps to screen at `s * P + t`. We want the user's point centered,
+  /// so `t = center - s * P`.
   void _animateToScenePoint(Offset target, Size size) {
     final s = _focusScale;
     final center = Offset(size.width / 2, size.height / 2);
     final end = Matrix4.identity()
-      ..translateByDouble(center.dx - s * target.dx, center.dy - s * target.dy,
-          0, 0)
-      ..scaleByDouble(s, s, 1, 1);
+      ..setEntry(0, 0, s)
+      ..setEntry(1, 1, s)
+      ..setEntry(0, 3, center.dx - s * target.dx)
+      ..setEntry(1, 3, center.dy - s * target.dy);
 
     _focusAnimation?.removeListener(_onFocusTick);
     _focusAnimation = Matrix4Tween(
@@ -274,9 +280,10 @@ class _MapViewState extends State<MapView>
                 ),
               ),
             ),
+            // Raised clear of the floating bottom navigation / active-view card.
             Positioned(
-              right: 16,
-              bottom: 16,
+              right: 20,
+              bottom: 120 + MediaQuery.of(context).padding.bottom,
               child: _LocateMeButton(
                 loading: _locating,
                 onPressed: () => _goToMyLocation(size),

@@ -159,7 +159,7 @@ class Contact {
       email: (json['email'] as String?) ?? '',
       notes: (json['notes'] as String?) ?? '',
       tags: List<String>.from(json['tags'] ?? []),
-      locationMet: json['locationMet'] as String,
+      locationMet: (json['locationMet'] as String?) ?? '',
       lat: (json['lat'] as num?)?.toDouble(),
       lng: (json['lng'] as num?)?.toDouble(),
       dateMet: json['dateMet'] != null
