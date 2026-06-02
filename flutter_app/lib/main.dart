@@ -473,6 +473,28 @@ class _HomePageState extends State<HomePage> {
         .toList();
   }
 
+  /// Selects the contact [delta] positions away from the current selection in
+  /// the filtered list (e.g. +1 = next, -1 = previous). No-op when there is no
+  /// selection or the target falls outside the list — callers pass null to the
+  /// card at the ends so the corresponding swipe is disabled.
+  void _selectAdjacentContact(int delta) {
+    final current = _selectedContact;
+    if (current == null) return;
+    final list = _filteredContacts;
+    final index = list.indexWhere((c) => c.id == current.id);
+    if (index == -1) return;
+    final target = index + delta;
+    if (target < 0 || target >= list.length) return;
+    setState(() => _selectedContact = list[target]);
+  }
+
+  /// Index of the selected contact within the filtered list, or -1 if none.
+  int get _selectedIndex {
+    final current = _selectedContact;
+    if (current == null) return -1;
+    return _filteredContacts.indexWhere((c) => c.id == current.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -541,6 +563,13 @@ class _HomePageState extends State<HomePage> {
                 ? () => _openEditForm(_selectedContact!)
                 : null,
             onLogInteraction: _onLogInteraction,
+            // Swipe left/right through the filtered list; disabled at the ends.
+            onNext: _selectedIndex >= 0 &&
+                    _selectedIndex < _filteredContacts.length - 1
+                ? () => _selectAdjacentContact(1)
+                : null,
+            onPrevious:
+                _selectedIndex > 0 ? () => _selectAdjacentContact(-1) : null,
           ),
 
           // Contact Form — responsive width so the panel always fits the

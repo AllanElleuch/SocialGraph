@@ -328,28 +328,9 @@ class _TimelineViewState extends State<TimelineView>
         ),
         child: Row(
           children: [
-            // Avatar
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-                border: Border.all(color: color.withValues(alpha: 0.4)),
-              ),
-              child: Center(
-                child: Text(
-                  contact.displayName.isNotEmpty
-                      ? contact.displayName[0].toUpperCase()
-                      : '?',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
+            // Avatar — the contact's photo when available, otherwise a colored
+            // circle with their initial.
+            _buildAvatar(contact, color),
             const SizedBox(width: 12),
             // Name + tags
             Expanded(
@@ -424,6 +405,40 @@ class _TimelineViewState extends State<TimelineView>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// The leading avatar for a timeline tile. Shows [Contact.photoThumbnail]
+  /// when the contact has a photo (matching the detail card), and falls back to
+  /// a colored circle bearing the contact's initial otherwise.
+  Widget _buildAvatar(Contact contact, Color color) {
+    if (contact.hasPhoto) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: color.withValues(alpha: 0.15),
+        backgroundImage: MemoryImage(contact.photoThumbnail!),
+      );
+    }
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        shape: BoxShape.circle,
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Center(
+        child: Text(
+          contact.displayName.isNotEmpty
+              ? contact.displayName[0].toUpperCase()
+              : '?',
+          style: TextStyle(
+            color: color,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );

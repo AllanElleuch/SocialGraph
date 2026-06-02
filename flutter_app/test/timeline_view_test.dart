@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,12 +10,20 @@ import 'package:social_graph/widgets/timeline_view.dart';
 /// Fixed reference dates so ordering is deterministic.
 final DateTime kNow = DateTime(2026, 6, 1);
 
+/// A minimal valid 1x1 transparent PNG, so [MemoryImage] decodes cleanly in
+/// widget tests.
+final Uint8List kPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+  '+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+);
+
 Contact makeContact({
   required String id,
   required String firstName,
   required DateTime dateMet,
   DateTime? lastInteraction,
   int interactionCount = 0,
+  Uint8List? photoThumbnail,
 }) {
   return Contact(
     id: id,
@@ -23,6 +34,7 @@ Contact makeContact({
     dateMet: dateMet,
     connections: const [],
     lastInteraction: lastInteraction,
+    photoThumbnail: photoThumbnail,
     interactions: List.generate(
       interactionCount,
       (i) => InteractionEvent(
@@ -174,6 +186,38 @@ void main() {
       await pumpView(tester, contacts: [c]);
 
       expect(find.textContaining('interaction'), findsNothing);
+    });
+  });
+
+  group('TimelineView avatar', () {
+    testWidgets('shows the contact photo when one is present', (tester) async {
+      final c = makeContact(
+        id: 'c',
+        firstName: 'Cara',
+        dateMet: kNow.subtract(const Duration(days: 20)),
+        photoThumbnail: kPng,
+      );
+
+      await pumpView(tester, contacts: [c]);
+
+      final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
+      expect(avatar.backgroundImage, isA<MemoryImage>());
+      // The initial-letter fallback is not used when a photo exists.
+      expect(find.text('C'), findsNothing);
+    });
+
+    testWidgets('falls back to the initial when there is no photo',
+        (tester) async {
+      final c = makeContact(
+        id: 'c',
+        firstName: 'Cara',
+        dateMet: kNow.subtract(const Duration(days: 20)),
+      );
+
+      await pumpView(tester, contacts: [c]);
+
+      expect(find.byType(CircleAvatar), findsNothing);
+      expect(find.text('C'), findsOneWidget);
     });
   });
 

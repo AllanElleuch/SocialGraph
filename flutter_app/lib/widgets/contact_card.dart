@@ -15,6 +15,14 @@ class ContactCard extends StatelessWidget {
   /// The parent applies it (`contact.logInteraction(event)`) and persists.
   final void Function(InteractionEvent event)? onLogInteraction;
 
+  /// Selects the next contact in the list (swipe left). Null when there is no
+  /// next contact, which disables that swipe direction.
+  final VoidCallback? onNext;
+
+  /// Selects the previous contact in the list (swipe right). Null when there is
+  /// no previous contact, which disables that swipe direction.
+  final VoidCallback? onPrevious;
+
   /// Injectable for tests; defaults to the real launcher.
   final QuickActionsService quickActions;
 
@@ -24,6 +32,8 @@ class ContactCard extends StatelessWidget {
     required this.onClose,
     this.onEdit,
     this.onLogInteraction,
+    this.onNext,
+    this.onPrevious,
     QuickActionsService? quickActions,
   }) : quickActions = quickActions ?? QuickActionsService();
 
@@ -41,8 +51,26 @@ class ContactCard extends StatelessWidget {
       right: contact != null ? margin : -(width + 24),
       bottom: 16,
       width: width,
-      child: contact != null ? _buildCard(context) : const SizedBox(),
+      child: contact != null
+          ? GestureDetector(
+              // Swipe left → next contact, swipe right → previous. Each
+              // direction is a no-op at the ends of the list (callback null).
+              onHorizontalDragEnd: _onHorizontalDragEnd,
+              child: _buildCard(context),
+            )
+          : const SizedBox(),
     );
+  }
+
+  /// Routes a horizontal fling on the card to the next/previous contact.
+  /// A small velocity threshold avoids treating incidental drags as swipes.
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity < -250) {
+      onNext?.call();
+    } else if (velocity > 250) {
+      onPrevious?.call();
+    }
   }
 
   /// Builds an [InteractionEvent] with a client-generated id + timestamp and
@@ -242,7 +270,8 @@ class ContactCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _sectionHeader(Icons.history, 'Interactions'),
+                Flexible(child: _sectionHeader(Icons.history, 'Interactions')),
+                const SizedBox(width: 8),
                 if (onLogInteraction != null)
                   InkWell(
                     onTap: () => _showLogSheet(context),
@@ -338,7 +367,11 @@ class ContactCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _sectionHeader(Icons.favorite_outline, 'Relationship strength'),
+            Flexible(
+              child:
+                  _sectionHeader(Icons.favorite_outline, 'Relationship strength'),
+            ),
+            const SizedBox(width: 8),
             Text(label,
                 style: TextStyle(
                     color: color, fontSize: 12, fontWeight: FontWeight.w600)),
@@ -486,16 +519,27 @@ class ContactCard extends StatelessWidget {
 
   Widget _sectionHeader(IconData icon, String title) {
     return Row(
+      // Only take intrinsic width so headers placed in a spaceBetween row (e.g.
+      // "Interactions" next to the Log button) leave room for the trailing
+      // widget instead of overflowing.
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: const Color(0xFF6b7280), size: 14),
         const SizedBox(width: 8),
-        Text(
-          title.toUpperCase(),
-          style: const TextStyle(
-            color: Color(0xFF6b7280),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 2,
+        // Flexible + ellipsis so a long header (e.g. "RELATIONSHIP STRENGTH")
+        // shrinks instead of overflowing when it shares a row with a trailing
+        // label or button.
+        Flexible(
+          child: Text(
+            title.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF6b7280),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 2,
+            ),
           ),
         ),
       ],
