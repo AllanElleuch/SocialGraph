@@ -4,6 +4,9 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Required by apple_maps_flutter to embed the native MapKit view. -->
+	<key>io.flutter.embedded_views_preview</key>
+	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>Social Graph needs access to your contacts so you can import them into your network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

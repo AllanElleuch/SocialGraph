@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 /// Types of logged interactions with a contact.
 enum InteractionType { call, text, email, meeting, note }
 
@@ -64,6 +67,13 @@ class Contact {
   /// Last local modification time, used for sync reconciliation (last-write-wins).
   final DateTime? updatedAt;
 
+  /// Contact photo thumbnail bytes (small), e.g. imported from the device
+  /// address book. Null when there is no picture. Persisted as base64.
+  final Uint8List? photoThumbnail;
+
+  /// The contact's birthday, when known (e.g. imported from the device).
+  final DateTime? birthday;
+
   Contact({
     required this.id,
     required this.firstName,
@@ -83,7 +93,12 @@ class Contact {
     this.interactions = const [],
     this.reminderCadenceDays,
     this.updatedAt,
+    this.photoThumbnail,
+    this.birthday,
   });
+
+  /// Whether this contact has a photo thumbnail available.
+  bool get hasPhoto => photoThumbnail != null && photoThumbnail!.isNotEmpty;
 
   String get displayName => '$firstName $lastName'.trim();
 
@@ -108,6 +123,8 @@ class Contact {
     List<InteractionEvent>? interactions,
     int? reminderCadenceDays,
     DateTime? updatedAt,
+    Uint8List? photoThumbnail,
+    DateTime? birthday,
   }) {
     return Contact(
       id: id ?? this.id,
@@ -128,6 +145,8 @@ class Contact {
       interactions: interactions ?? this.interactions,
       reminderCadenceDays: reminderCadenceDays ?? this.reminderCadenceDays,
       updatedAt: updatedAt ?? this.updatedAt,
+      photoThumbnail: photoThumbnail ?? this.photoThumbnail,
+      birthday: birthday ?? this.birthday,
     );
   }
 
@@ -177,6 +196,12 @@ class Contact {
       updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'] as String)
           : null,
+      photoThumbnail: (json['photoThumbnail'] as String?)?.isNotEmpty == true
+          ? base64Decode(json['photoThumbnail'] as String)
+          : null,
+      birthday: json['birthday'] != null
+          ? DateTime.parse(json['birthday'] as String)
+          : null,
     );
   }
 
@@ -200,6 +225,9 @@ class Contact {
       'interactions': interactions.map((e) => e.toJson()).toList(),
       'reminderCadenceDays': reminderCadenceDays,
       'updatedAt': updatedAt?.toIso8601String(),
+      'photoThumbnail':
+          photoThumbnail != null ? base64Encode(photoThumbnail!) : null,
+      'birthday': birthday?.toIso8601String(),
     };
   }
 }

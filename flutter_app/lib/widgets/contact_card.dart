@@ -88,6 +88,14 @@ class ContactCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (c.hasPhoto) ...[
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: const Color(0xFF333333),
+                    backgroundImage: MemoryImage(c.photoThumbnail!),
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
                   child: Text(
                     c.displayName,
@@ -180,6 +188,21 @@ class ContactCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
+
+            // Birthday (e.g. imported from the device address book)
+            if (c.birthday != null) ...[
+              _infoRow(
+                Icons.cake_outlined,
+                Text(
+                  // Year 1900 is the sentinel for "no year recorded".
+                  c.birthday!.year == 1900
+                      ? DateFormat.MMMMd().format(c.birthday!)
+                      : DateFormat.yMMMMd().format(c.birthday!),
+                  style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Notes
             _sectionHeader(Icons.sticky_note_2_outlined, 'Notes'),

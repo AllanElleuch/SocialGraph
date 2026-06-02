@@ -18,3 +18,60 @@ View your app in AI Studio: https://ai.studio/apps/442a54f5-08f8-45fd-b7aa-6be14
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Legal documents (Privacy Policy & Terms of Use)
+
+The legal documents are versioned Markdown files that serve as the **single
+source of truth** for both the Flutter app and the public website:
+
+| File | Purpose |
+| --- | --- |
+| [`flutter_app/assets/legal/privacy-policy.md`](flutter_app/assets/legal/privacy-policy.md) | Privacy Policy |
+| [`flutter_app/assets/legal/terms-of-use.md`](flutter_app/assets/legal/terms-of-use.md) | Terms of Use |
+
+**Contact:** `contact@codelio.fr`
+
+### Versioning
+
+Each document carries a `version` and `effective` date in its YAML front
+matter (currently **v1.0.0**, effective **2 June 2026**). When you change a
+document:
+
+1. Bump `version` (semver) and update `effective` in the Markdown front matter.
+2. Update `legalDocsVersion` / `legalDocsEffective` in
+   [`flutter_app/lib/widgets/settings_view.dart`](flutter_app/lib/widgets/settings_view.dart)
+   to match.
+3. Rebuild and redeploy the website (below).
+
+### In-app display
+
+The Flutter app bundles both files as assets and renders them in
+**Settings → Legal** (`SettingsView` / `LegalDocView` in
+`lib/widgets/settings_view.dart`), so they are available offline. Each document
+also links out to its hosted copy.
+
+### Public website (Cloudflare Pages)
+
+A zero-dependency build script renders the same Markdown into a styled static
+site:
+
+```bash
+# Generate legal/dist/{index,privacy-policy,terms-of-use}.html from the Markdown
+node legal/build.mjs
+
+# Deploy to Cloudflare Pages (project: codelio-legal)
+npx wrangler pages deploy legal/dist --project-name codelio-legal
+```
+
+This publishes:
+
+- `https://codelio-legal.pages.dev/privacy-policy.html`
+- `https://codelio-legal.pages.dev/terms-of-use.html`
+
+> First-time setup: run `npx wrangler login`, then create the Pages project
+> once with `npx wrangler pages project create codelio-legal`. The generated
+> `legal/dist/` directory is build output and does not need to be committed.
+
+Update the `privacyPolicyUrl` / `termsOfUseUrl` constants in
+`settings_view.dart` if you deploy to a different Pages domain (e.g. a custom
+domain).

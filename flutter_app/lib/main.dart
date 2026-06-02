@@ -27,6 +27,7 @@ import 'widgets/merge_review_sheet.dart';
 import 'widgets/needs_attention_view.dart';
 import 'widgets/sign_in_screen.dart';
 import 'widgets/backup_view.dart';
+import 'widgets/settings_view.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
 /// offline-first with no auth/cloud features (e.g. config files absent, tests).
@@ -239,6 +240,10 @@ class _HomePageState extends State<HomePage> {
       groups: groups,
       onMergeGroup: _applyMerge,
     );
+  }
+
+  void _openSettings() {
+    SettingsView.show(context);
   }
 
   void _openNeedsAttention() {
@@ -714,6 +719,8 @@ class _HomePageState extends State<HomePage> {
                           _importBackup();
                         case 'cloudbackups':
                           _openCloudBackups();
+                        case 'settings':
+                          _openSettings();
                         case 'signin':
                           _openSignIn();
                         case 'signout':
@@ -747,6 +754,11 @@ class _HomePageState extends State<HomePage> {
                           child: Text('Cloud backups',
                               style: TextStyle(color: Color(0xFFe2e8f0))),
                         ),
+                      const PopupMenuItem(
+                        value: 'settings',
+                        child: Text('Settings',
+                            style: TextStyle(color: Color(0xFFe2e8f0))),
+                      ),
                       if (_cloudEnabled)
                         PopupMenuItem(
                           value: _signedIn ? 'signout' : 'signin',

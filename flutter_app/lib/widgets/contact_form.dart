@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/contact.dart';
 import 'tag_input.dart';
 import 'address_field.dart';
+import 'connection_picker.dart';
 
 class ContactForm extends StatefulWidget {
   final Contact? existingContact;
@@ -177,9 +178,10 @@ class _ContactFormState extends State<ContactForm> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 380,
-      child: Container(
+    // Width is controlled by the parent (responsive Positioned in main.dart),
+    // so the form fills whatever width it is given rather than forcing a fixed
+    // size that would overflow on narrow screens.
+    return Container(
         decoration: BoxDecoration(
           color: const Color(0xFF1a1a1a),
           border: Border.all(color: const Color(0xFF333333)),
@@ -389,46 +391,16 @@ class _ContactFormState extends State<ContactForm> {
                 ),
                 const SizedBox(height: 16),
 
-                // Connections
+                // Connections — search-as-you-type instead of one chip per
+                // contact, so this scales to thousands of contacts.
                 _fieldLabel('Connections'),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: widget.allContacts
+                ConnectionPicker(
+                  candidates: widget.allContacts
                       .where((c) =>
-                          !_isEditMode ||
-                          c.id != widget.existingContact!.id)
-                      .map((c) {
-                    final isSelected =
-                        _selectedConnections.contains(c.id);
-                    return FilterChip(
-                      label: Text(c.displayName),
-                      selected: isSelected,
-                      onSelected: (selected) {
-                        setState(() {
-                          if (selected) {
-                            _selectedConnections.add(c.id);
-                          } else {
-                            _selectedConnections.remove(c.id);
-                          }
-                        });
-                      },
-                      backgroundColor: const Color(0xFF111111),
-                      selectedColor: const Color(0xFF6366f1)
-                          .withValues(alpha: 0.2),
-                      checkmarkColor: const Color(0xFF6366f1),
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? const Color(0xFF6366f1)
-                            : const Color(0xFF9ca3af),
-                      ),
-                      side: const BorderSide(
-                          color: Color(0xFF333333)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    );
-                  }).toList(),
+                          !_isEditMode || c.id != widget.existingContact!.id)
+                      .toList(),
+                  initialSelectedIds: _selectedConnections,
+                  onChanged: (ids) => _selectedConnections = ids,
                 ),
                 const SizedBox(height: 24),
 
@@ -473,7 +445,6 @@ class _ContactFormState extends State<ContactForm> {
             ),
           ),
         ),
-      ),
     );
   }
 }
