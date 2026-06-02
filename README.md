@@ -19,6 +19,51 @@ View your app in AI Studio: https://ai.studio/apps/442a54f5-08f8-45fd-b7aa-6be14
 3. Run the app:
    `npm run dev`
 
+## App Store Connect / iOS identifiers
+
+Recorded here so they never drift again — a casing mismatch once broke App Store
+uploads (Xcode tried to register a *new* bundle ID because the project used
+lowercase while App Store Connect used capital **G**).
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| **Bundle ID** | `com.codelio.socialGraph` | ⚠️ capital **G** — case-sensitive and **immutable** in App Store Connect |
+| **SKU** | `com.codelio.socialgraph` | internal-only identifier; may differ from the Bundle ID |
+| **Apple Team ID** | `7VKGAZ92DM` | |
+| **Firebase project** | `socialgraph-69110` | |
+
+The Bundle ID must match **exactly** (same casing) in all of:
+
+- `flutter_app/ios/Runner.xcodeproj/project.pbxproj` (`PRODUCT_BUNDLE_IDENTIFIER`)
+- `flutter_app/ios/Runner/GoogleService-Info.plist` (`BUNDLE_ID`)
+- `flutter_app/lib/firebase_options.dart` (`iosBundleId`)
+
+## Cloudflare
+
+The project's public-facing static content is hosted on **Cloudflare Pages**.
+
+| Resource | Cloudflare service | Project → URL |
+| --- | --- | --- |
+| Public legal site (Privacy Policy & Terms of Use) | Pages | `codelio-legal` → https://codelio-legal.pages.dev |
+
+The site is generated from the **same** Markdown the Flutter app bundles, so the
+in-app and web copies never drift. Build and deploy with the Wrangler CLI:
+
+```bash
+node legal/build.mjs                                              # build → legal/dist/
+npx wrangler pages deploy legal/dist --project-name codelio-legal # deploy
+```
+
+First-time setup: `npx wrangler login`, then create the project once with
+`npx wrangler pages project create codelio-legal`. See
+[Legal documents → Public website](#public-website-cloudflare-pages) for the
+full versioning workflow.
+
+> **What is _not_ on Cloudflare:** the app's data backend is **Firebase** —
+> Firestore for per-user cloud sync and backups, Firebase Auth for sign-in.
+> There is no Cloudflare Worker; an earlier local Express prototype was retired
+> in favour of local-first storage + Firestore.
+
 ## Legal documents (Privacy Policy & Terms of Use)
 
 The legal documents are versioned Markdown files that serve as the **single

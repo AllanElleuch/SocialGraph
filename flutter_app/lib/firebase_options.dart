@@ -63,6 +63,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '265450794682',
     projectId: 'socialgraph-69110',
     storageBucket: 'socialgraph-69110.firebasestorage.app',
-    iosBundleId: 'com.codelio.socialgraph',
+    iosBundleId: 'com.codelio.socialGraph',
   );
 }
