@@ -407,8 +407,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _contacts = [];
       _selectedContact = null;
     });
-    await _persist();
-    if (mounted) _showSnack('All contacts deleted');
+    // Local only: clear the on-device cache but leave the cloud sync document
+    // and cloud backups intact (do NOT call _persist, which would push the
+    // empty list to the cloud).
+    await _repository.clear();
+    if (mounted) _showSnack('Deleted all contacts on this device');
   }
 
   /// Permanently deletes the signed-in user's account along with their cloud

@@ -164,9 +164,6 @@ class ConstellationSky {
   });
 }
 
-/// Group index assigned to all untagged ("loose") stars.
-const int kLooseGroupIndex = -1;
-
 /// The relationship label for a line between two contacts: the tags they have
 /// in common, joined by " · " (e.g. "Work · Gym"). Matching is case-insensitive
 /// but preserves [a]'s original casing and order, and de-duplicates. Returns ''
@@ -264,16 +261,19 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
     }
   }
 
-  // Loose (untagged) contacts: a 2D jittered grid below the constellation grid.
-  // A grid (rather than a thin random band) keeps thousands of unconnected
-  // stars evenly spread instead of piling on top of each other — which both
-  // looks better and avoids heavy overdraw.
+  // Contacts with no linking tag have no constellation of their own. Rather
+  // than leaving them as anonymous floaters, collect them into a single named
+  // "Orphans" constellation: a labeled, selectable group. They're laid out on a
+  // 2D jittered grid below the tagged constellations so thousands stay evenly
+  // spread (cheap to draw, no pile-up).
   final loose = byTag[''] ?? const [];
   if (loose.isNotEmpty) {
+    final orphanIndex = namedTags.length;
     final rows = namedTags.isEmpty ? 0 : (namedTags.length / cols).ceil();
     final bandTop = rows * _cellH + (rows == 0 ? 0.0 : 80.0);
     const cell = 74.0;
     final looseCols = math.sqrt(loose.length).ceil();
+    final looseRows = (loose.length / looseCols).ceil();
     for (var i = 0; i < loose.length; i++) {
       final id = loose[i];
       final rng = math.Random(_seed(id));
@@ -283,8 +283,14 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
         col * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
         bandTop + row * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
       );
-      groupIndex[id] = kLooseGroupIndex;
+      groupIndex[id] = orphanIndex;
     }
+    groups.add(ConstellationGroup(
+      tag: 'Orphans',
+      constellation: 'Orphans',
+      center: Offset(looseCols * cell / 2, bandTop + looseRows * cell / 2),
+      index: orphanIndex,
+    ));
   }
 
   return ConstellationSky(

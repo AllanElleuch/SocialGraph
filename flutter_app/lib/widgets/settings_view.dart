@@ -51,8 +51,8 @@ class SettingsView extends StatelessWidget {
   /// Whether a user is currently signed in (drives the Account tile label).
   final bool isSignedIn;
 
-  /// Deletes every contact from the device (and the cloud copy when signed in)
-  /// after the user confirms. Null hides the entry.
+  /// Deletes every contact from this device only (cloud sync copy and cloud
+  /// backups are kept) after the user confirms. Null hides the entry.
   final VoidCallback? onDeleteAllContacts;
 
   /// Permanently deletes the signed-in user's account and cloud data after the
@@ -132,10 +132,11 @@ class SettingsView extends StatelessWidget {
       context,
       title: 'Delete all contacts?',
       message: isSignedIn
-          ? 'This permanently removes every contact from this device and your '
-              'cloud copy. This cannot be undone.'
-          : 'This permanently removes every contact from this device. This '
-              'cannot be undone.',
+          ? 'This removes every contact from this device only. Your cloud sync '
+              'copy and cloud backups are kept, so contacts may return on the '
+              'next cloud sync, and you can always restore from a backup.'
+          : 'This removes every contact from this device. Your cloud backups '
+              'are kept, so you can restore from one later.',
       confirmLabel: 'Delete all',
     );
     if (confirmed == true) onDeleteAllContacts?.call();
@@ -329,9 +330,7 @@ class SettingsView extends StatelessWidget {
               _SettingsTile(
                 icon: Icons.delete_sweep_outlined,
                 title: 'Delete all contacts',
-                subtitle: isSignedIn
-                    ? 'Remove every contact from this device and the cloud'
-                    : 'Remove every contact from this device',
+                subtitle: 'Remove from this device only · keeps cloud backups',
                 destructive: true,
                 onTap: () => _confirmDeleteContacts(context),
               ),

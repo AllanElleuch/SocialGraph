@@ -23,18 +23,19 @@ void main() {
     expect(sky.groups.map((g) => g.tag), containsAll(['Work', 'Family']));
   });
 
-  test('untagged contacts go to the loose region', () {
+  test('untagged contacts form a single "Orphans" constellation', () {
     final sky = computeConstellationSky([
       (id: 'a', tag: ''),
       (id: 'b', tag: ''),
       (id: 'c', tag: 'Work'),
     ]);
 
-    expect(sky.groupIndex['a'], kLooseGroupIndex);
-    expect(sky.groupIndex['b'], kLooseGroupIndex);
-    expect(sky.groupIndex['c'], isNot(kLooseGroupIndex));
-    // Loose contacts get no figure name.
-    expect(sky.groups.any((g) => g.tag == ''), isFalse);
+    // The two untagged contacts share one group, distinct from Work.
+    expect(sky.groupIndex['a'], sky.groupIndex['b']);
+    expect(sky.groupIndex['a'], isNot(sky.groupIndex['c']));
+    // ...and that group is the named "Orphans" constellation.
+    final orphans = sky.groups.firstWhere((g) => g.tag == 'Orphans');
+    expect(sky.groupIndex['a'], orphans.index);
   });
 
   test('is deterministic — same input yields identical positions', () {
