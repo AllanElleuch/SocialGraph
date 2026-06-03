@@ -21,6 +21,7 @@ class Controls extends StatelessWidget {
       _ButtonDef(PivotType.mutual, Icons.people, 'Mutuals'),
       _ButtonDef(PivotType.location, Icons.map_outlined, 'Location'),
       _ButtonDef(PivotType.time, Icons.schedule, 'Timeline'),
+      _ButtonDef(PivotType.stats, Icons.emoji_events_outlined, 'Stats'),
     ];
 
     return Positioned(

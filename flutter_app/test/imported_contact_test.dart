@@ -57,6 +57,31 @@ void main() {
       expect(c.birthday, DateTime(1900, 12, 10)); // no year -> sentinel
     });
 
+    test('maps recognized social profiles into Contact.socials', () {
+      const imported = ImportedContact(
+        sourceId: 'dev-9',
+        first: 'Grace',
+        socialMedias: [
+          LabeledValue(value: '@grace', label: 'instagram'),
+          LabeledValue(value: 'grace.snap', label: 'snapchat'),
+          LabeledValue(value: '@ada', label: 'x'), // unsupported -> dropped
+        ],
+      );
+
+      final c = imported.toAppContact();
+      expect(c.socials, {'instagram': 'grace', 'snapchat': 'grace.snap'});
+    });
+
+    test('records import provenance (source, platform, device id, date)', () {
+      final when = DateTime(2026, 6, 3, 9, 30);
+      final c = sample.toAppContact(platform: 'iOS', importedAt: when);
+      final origin = c.origin!;
+      expect(origin.isImported, isTrue);
+      expect(origin.platform, 'iOS');
+      expect(origin.deviceId, 'dev-1'); // stable device id for re-import
+      expect(origin.importedAt, when);
+    });
+
     test('round-trips through JSON including photo bytes', () {
       final restored = ImportedContact.fromJson(sample.toJson());
       expect(restored.displayName, 'Ada Lovelace');

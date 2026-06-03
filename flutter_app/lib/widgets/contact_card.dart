@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/contact.dart';
 import '../services/quick_actions_service.dart';
+import '../services/social_links.dart';
 import '../services/relationship_strength.dart';
 import '../services/reach_out_service.dart';
 
@@ -232,6 +233,26 @@ class ContactCard extends StatelessWidget {
               const SizedBox(height: 24),
             ],
 
+            // Provenance — how this contact was added (imported vs. manual).
+            if (_originLabel(c) != null) ...[
+              _infoRow(
+                Icons.history_edu_outlined,
+                Text(
+                  _originLabel(c)!,
+                  style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // Social media — tap a handle to open the profile.
+            if (_socialEntries(c).isNotEmpty) ...[
+              _sectionHeader(Icons.share_outlined, 'Social'),
+              const SizedBox(height: 8),
+              ..._socialEntries(c).map((e) => _socialRow(e.key, e.value)),
+              const SizedBox(height: 16),
+            ],
+
             // Notes
             _sectionHeader(Icons.sticky_note_2_outlined, 'Notes'),
             const SizedBox(height: 8),
@@ -309,6 +330,11 @@ class ContactCard extends StatelessWidget {
       }));
       buttons.add(_actionButton(Icons.message_outlined, 'Text', () {
         quickActions.sms(c.phone);
+        _log(InteractionType.text);
+      }));
+      // Opens wa.me for this number; WhatsApp confirms if it's registered.
+      buttons.add(_actionButton(Icons.chat_bubble_outline, 'WhatsApp', () {
+        quickActions.whatsapp(c.phone);
         _log(InteractionType.text);
       }));
     }
@@ -505,6 +531,81 @@ class ContactCard extends StatelessWidget {
 
   Widget _plainText(String text) => Text(text,
       style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14));
+
+  /// A short description of how the contact was added, e.g.
+  /// "Imported from iOS · Jun 3, 2026", or null when it was created manually or
+  /// predates provenance tracking.
+  String? _originLabel(Contact c) {
+    final origin = c.origin;
+    if (origin == null || !origin.isImported) return null;
+    final from = origin.platform.isNotEmpty ? ' from ${origin.platform}' : '';
+    final when = origin.importedAt != null
+        ? ' · ${DateFormat.yMMMd().format(origin.importedAt!.toLocal())}'
+        : '';
+    return 'Imported$from$when';
+  }
+
+  /// The contact's non-empty social handles paired with their platform, in
+  /// display order.
+  List<MapEntry<SocialPlatform, String>> _socialEntries(Contact c) {
+    final entries = <MapEntry<SocialPlatform, String>>[];
+    for (final platform in SocialPlatform.all) {
+      final handle = c.socials[platform.id]?.trim() ?? '';
+      if (handle.isNotEmpty) entries.add(MapEntry(platform, handle));
+    }
+    return entries;
+  }
+
+  /// A tappable row that opens the contact's profile on [platform].
+  Widget _socialRow(SocialPlatform platform, String handle) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: () => quickActions.open(platform.profileUrl(handle)),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            Icon(_socialIcon(platform.id),
+                color: const Color(0xFF818cf8), size: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(platform.label,
+                      style: const TextStyle(
+                          color: Color(0xFF6b7280), fontSize: 11)),
+                  Text(handle,
+                      style: const TextStyle(
+                          color: Color(0xFF9ca3af), fontSize: 14)),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_new, color: Color(0xFF4b5563), size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Maps a platform id to a representative Material icon (core Material has no
+  /// brand glyphs for most networks, so these are approximations).
+  IconData _socialIcon(String id) {
+    switch (id) {
+      case 'facebook':
+        return Icons.facebook;
+      case 'instagram':
+        return Icons.camera_alt_outlined;
+      case 'tiktok':
+        return Icons.music_note_outlined;
+      case 'snapchat':
+        return Icons.photo_camera_outlined;
+      case 'linkedin':
+        return Icons.work_outline;
+      default:
+        return Icons.link;
+    }
+  }
 
   Widget _infoRow(IconData icon, Widget content) {
     return Row(

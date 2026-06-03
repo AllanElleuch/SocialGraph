@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/graph_node.dart';
 import '../models/contact.dart';
@@ -44,6 +45,11 @@ class GraphPainter extends CustomPainter {
   final double minTime;
   final double maxTime;
 
+  /// Decoded contact thumbnails keyed by contact id. A node whose id has an
+  /// entry is drawn with the photo clipped to its circle; others fall back to a
+  /// solid colored circle. Defaults to empty (no photos).
+  final Map<String, ui.Image> photos;
+
   /// Reference time used to compute relationship strength at paint time.
   /// Injectable for deterministic testing; defaults to the wall clock.
   final DateTime now;
@@ -54,6 +60,7 @@ class GraphPainter extends CustomPainter {
     required this.pivot,
     required this.minTime,
     required this.maxTime,
+    this.photos = const {},
     DateTime? now,
   }) : now = now ?? DateTime.now();
 
@@ -151,17 +158,34 @@ class GraphPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
       canvas.drawCircle(center, glowRadius, glowPaint);
 
-      // Node circle
-      final fillPaint = Paint()
-        ..color = _getNodeColor(node)
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(center, radius, fillPaint);
+      // Node body: the contact's photo (clipped to the circle) when decoded,
+      // otherwise a solid colored circle.
+      final image = photos[node.id];
+      if (image != null) {
+        final rect = Rect.fromCircle(center: center, radius: radius);
+        canvas.save();
+        canvas.clipPath(Path()..addOval(rect));
+        paintImage(
+          canvas: canvas,
+          rect: rect,
+          image: image,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+        );
+        canvas.restore();
+      } else {
+        final fillPaint = Paint()
+          ..color = _getNodeColor(node)
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(center, radius, fillPaint);
+      }
 
-      // Stroke
+      // Stroke — tinted with the node color for photo nodes so each node keeps
+      // its identity ring; plain white otherwise (preserves prior look).
       final strokePaint = Paint()
-        ..color = Colors.white
+        ..color = image != null ? _getNodeColor(node) : Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
+        ..strokeWidth = image != null ? 2.5 : 2;
       canvas.drawCircle(center, radius, strokePaint);
 
       // Label — positioned just outside the (possibly larger) node circle so

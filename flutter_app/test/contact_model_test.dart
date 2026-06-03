@@ -72,6 +72,70 @@ void main() {
       expect(json['homeAddress'], '456 Oak Ave');
     });
 
+    test('round-trips import provenance through JSON', () {
+      final contact = Contact(
+        id: 'import-d1',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        tags: const ['Imported'],
+        locationMet: '',
+        connections: const [],
+        origin: ContactOrigin.imported(
+          platform: 'iOS',
+          deviceId: 'd1',
+          importedAt: DateTime(2026, 6, 3, 9, 30),
+        ),
+      );
+
+      final restored = Contact.fromJson(contact.toJson());
+
+      expect(restored.origin, isNotNull);
+      expect(restored.origin!.isImported, isTrue);
+      expect(restored.origin!.platform, 'iOS');
+      expect(restored.origin!.deviceId, 'd1');
+      expect(restored.origin!.importedAt, DateTime(2026, 6, 3, 9, 30));
+    });
+
+    test('round-trips social handles through JSON', () {
+      final contact = Contact(
+        id: '1',
+        firstName: 'Ada',
+        lastName: 'L',
+        tags: const [],
+        locationMet: '',
+        connections: const [],
+        socials: const {'instagram': 'ada', 'linkedin': 'ada-l'},
+      );
+
+      final restored = Contact.fromJson(contact.toJson());
+      expect(restored.socials, {'instagram': 'ada', 'linkedin': 'ada-l'});
+    });
+
+    test('omits the socials key entirely when there are none', () {
+      final contact = Contact(
+        id: '1',
+        firstName: 'Ada',
+        lastName: 'L',
+        tags: const [],
+        locationMet: '',
+        connections: const [],
+      );
+      expect(contact.toJson().containsKey('socials'), isFalse);
+      expect(Contact.fromJson(contact.toJson()).socials, isEmpty);
+    });
+
+    test('origin is null for contacts saved before provenance tracking', () {
+      final json = {
+        'id': '1',
+        'firstName': 'Old',
+        'lastName': 'Contact',
+        'tags': <String>[],
+        'locationMet': '',
+        'connections': <String>[],
+      };
+      expect(Contact.fromJson(json).origin, isNull);
+    });
+
     test('displayName trims correctly', () {
       final contact = Contact(
         id: '1',

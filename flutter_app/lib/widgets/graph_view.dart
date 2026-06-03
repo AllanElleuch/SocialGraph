@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../models/contact.dart';
 import '../models/graph_node.dart';
@@ -35,6 +37,18 @@ class _GraphViewState extends State<GraphView>
   Offset? _lastFocalPoint;
 
   bool _graphBuilt = false;
+
+  /// Decoded contact thumbnails, keyed by contact id, drawn inside their graph
+  /// node. Populated asynchronously; nodes show a colored circle until ready.
+  final Map<String, ui.Image> _photos = {};
+
+  /// Contact ids whose thumbnail decode is currently in flight, so concurrent
+  /// rebuilds don't kick off duplicate decodes for the same contact.
+  final Set<String> _decoding = {};
+
+  /// Coalesces the many per-image decode completions into at most one repaint
+  /// per frame instead of one [setState] per decoded photo.
+  bool _repaintScheduled = false;
 
   @override
   void initState() {
@@ -112,7 +126,53 @@ class _GraphViewState extends State<GraphView>
       centerY: cy,
     );
 
+    _decodePhotos();
     _animController.repeat();
+  }
+
+  /// Decodes thumbnails for any photo contacts not already cached or in flight,
+  /// and disposes cached images for contacts that have gone away.
+  void _decodePhotos() {
+    final liveIds = widget.contacts.map((c) => c.id).toSet();
+    final stale = _photos.keys.where((id) => !liveIds.contains(id)).toList();
+    for (final id in stale) {
+      _photos.remove(id)?.dispose();
+    }
+    for (final c in widget.contacts) {
+      if (!c.hasPhoto) continue;
+      if (_photos.containsKey(c.id) || _decoding.contains(c.id)) continue;
+      _decoding.add(c.id);
+      _decodeOne(c.id, c.photoThumbnail!);
+    }
+  }
+
+  Future<void> _decodeOne(String id, Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      if (!mounted) {
+        frame.image.dispose();
+        return;
+      }
+      _photos[id] = frame.image;
+      _scheduleRepaint();
+    } catch (_) {
+      // Undecodable image (corrupt/unsupported) — the node keeps its fallback
+      // colored circle.
+    } finally {
+      _decoding.remove(id);
+    }
+  }
+
+  /// Requests a single repaint on the next frame, collapsing bursts of decode
+  /// completions so we don't call [setState] hundreds of times.
+  void _scheduleRepaint() {
+    if (_repaintScheduled || !mounted) return;
+    _repaintScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _repaintScheduled = false;
+      if (mounted) setState(() {});
+    });
   }
 
   void _onTick() {
@@ -189,6 +249,10 @@ class _GraphViewState extends State<GraphView>
 
   @override
   void dispose() {
+    for (final image in _photos.values) {
+      image.dispose();
+    }
+    _photos.clear();
     _animController.dispose();
     _transformController.dispose();
     super.dispose();
@@ -226,6 +290,7 @@ class _GraphViewState extends State<GraphView>
             pivot: widget.pivot,
             minTime: minTime,
             maxTime: maxTime,
+            photos: _photos,
           ),
         ),
       ),

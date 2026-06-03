@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../utils/text_sanitizer.dart';
 import 'contact.dart';
 
 /// A high-fidelity snapshot of a device address-book entry.
@@ -88,29 +89,58 @@ class ImportedContact {
   /// Projects this rich record onto the app's [Contact] model, keeping the
   /// extra fidelity that [Contact] can hold (photo thumbnail, birthday) while
   /// flattening the rest to its primary values.
-  Contact toAppContact() {
+  ///
+  /// [platform] and [importedAt] populate the contact's import provenance
+  /// (e.g. "iOS" and the time of import); the service supplies them.
+  Contact toAppContact({String platform = '', DateTime? importedAt}) {
     final org = primaryOrganization;
     final workplace = [
       org?.company ?? '',
       org?.title ?? '',
     ].where((s) => s.isNotEmpty).join(' · ');
 
+    // Carry over social profiles the OS labeled with a network we support.
+    const knownSocials = {
+      'facebook',
+      'instagram',
+      'tiktok',
+      'snapchat',
+      'linkedin',
+    };
+    final socials = <String, String>{};
+    for (final sm in socialMedias) {
+      final key = sm.label.trim().toLowerCase();
+      final handle = sanitizeUtf16(sm.value.trim()).replaceFirst('@', '');
+      if (knownSocials.contains(key) && handle.isNotEmpty) {
+        socials.putIfAbsent(key, () => handle);
+      }
+    }
+
     return Contact(
       // Temporary client id; the backend assigns the real id on create.
       id: 'import-$sourceId',
-      firstName: first,
-      lastName: last,
-      workplace: workplace,
-      homeAddress: primaryAddress?.formattedOneLine ?? '',
-      phone: primaryPhone,
-      email: primaryEmail,
-      notes: notes.where((n) => n.trim().isNotEmpty).join('\n'),
+      // Device address books can yield malformed UTF-16 (e.g. a truncated
+      // emoji); sanitize so the contact renders and syncs to Firestore safely.
+      firstName: sanitizeUtf16(first),
+      lastName: sanitizeUtf16(last),
+      workplace: sanitizeUtf16(workplace),
+      homeAddress: sanitizeUtf16(primaryAddress?.formattedOneLine ?? ''),
+      phone: sanitizeUtf16(primaryPhone),
+      email: sanitizeUtf16(primaryEmail),
+      notes: sanitizeUtf16(
+          notes.where((n) => n.trim().isNotEmpty).join('\n')),
       tags: const ['Imported'],
       locationMet: '',
       dateMet: null,
       connections: const [],
       photoThumbnail: photo?.thumbnail ?? photo?.fullSize,
       birthday: birthday?.toDateTime(),
+      origin: ContactOrigin.imported(
+        platform: platform,
+        deviceId: sourceId,
+        importedAt: importedAt,
+      ),
+      socials: socials,
     );
   }
 

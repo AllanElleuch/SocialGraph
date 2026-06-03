@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as device;
 import '../models/contact.dart';
 import '../models/imported_contact.dart';
@@ -86,12 +87,34 @@ class ContactsImportService {
         await device.FlutterContacts.getAll(properties: properties);
 
     final imported = deviceContacts.map(_toImported).toList();
+    final platform = _platformLabel();
+    final importedAt = DateTime.now();
     final mapped = imported
-        .map((i) => i.toAppContact())
+        .map((i) => i.toAppContact(platform: platform, importedAt: importedAt))
         .where((c) => c.displayName.isNotEmpty)
         .toList();
 
     return ImportResult(ImportStatus.success, mapped, imported);
+  }
+
+  /// A human-readable label for the current platform, recorded as import
+  /// provenance (e.g. "iOS", "Android").
+  String _platformLabel() {
+    if (kIsWeb) return 'Web';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+        return 'iOS';
+      case TargetPlatform.android:
+        return 'Android';
+      case TargetPlatform.macOS:
+        return 'macOS';
+      case TargetPlatform.windows:
+        return 'Windows';
+      case TargetPlatform.linux:
+        return 'Linux';
+      case TargetPlatform.fuchsia:
+        return 'Fuchsia';
+    }
   }
 
   /// Opens the system settings so the user can grant a permanently-denied

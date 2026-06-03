@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/contact.dart';
+import '../services/social_links.dart';
 import 'tag_input.dart';
 import 'address_field.dart';
 import 'connection_picker.dart';
@@ -33,6 +34,9 @@ class _ContactFormState extends State<ContactForm> {
   late final TextEditingController _emailController;
   late final TextEditingController _notesController;
 
+  /// One text controller per supported social platform, keyed by platform id.
+  late final Map<String, TextEditingController> _socialControllers;
+
   late List<String> _tags;
   String? _locationMet;
   double? _locationLat;
@@ -54,6 +58,11 @@ class _ContactFormState extends State<ContactForm> {
     _phoneController = TextEditingController(text: c?.phone ?? '');
     _emailController = TextEditingController(text: c?.email ?? '');
     _notesController = TextEditingController(text: c?.notes ?? '');
+    _socialControllers = {
+      for (final platform in SocialPlatform.all)
+        platform.id:
+            TextEditingController(text: c?.socials[platform.id] ?? ''),
+    };
     _tags = List<String>.from(c?.tags ?? []);
     _locationMet = c?.locationMet;
     _locationLat = c?.lat;
@@ -74,11 +83,22 @@ class _ContactFormState extends State<ContactForm> {
     _phoneController.dispose();
     _emailController.dispose();
     _notesController.dispose();
+    for (final controller in _socialControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   void _onSave() {
     if (!_formKey.currentState!.validate()) return;
+
+    // Collect non-empty social handles, normalized to bare handles.
+    final socials = <String, String>{};
+    for (final platform in SocialPlatform.all) {
+      final handle =
+          SocialPlatform.normalizeHandle(_socialControllers[platform.id]!.text);
+      if (handle.isNotEmpty) socials[platform.id] = handle;
+    }
 
     final existing = widget.existingContact;
     final contact = Contact(
@@ -101,6 +121,11 @@ class _ContactFormState extends State<ContactForm> {
       // Preserve the interaction history on edit; it is not editable here.
       interactions: existing?.interactions ?? const [],
       updatedAt: DateTime.now(),
+      socials: socials,
+      // Preserve fields this form does not edit, so editing never drops them.
+      photoThumbnail: existing?.photoThumbnail,
+      birthday: existing?.birthday,
+      origin: existing?.origin,
     );
     widget.onSave(contact);
   }
@@ -158,6 +183,34 @@ class _ContactFormState extends State<ContactForm> {
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: Color(0xFFF43F5E)),
+      ),
+    );
+  }
+
+  /// A labeled handle input for one social platform.
+  Widget _socialField(SocialPlatform platform) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 84,
+            child: Text(
+              platform.label,
+              style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: TextFormField(
+              controller: _socialControllers[platform.id],
+              style: const TextStyle(color: Color(0xFFe2e8f0), fontSize: 14),
+              decoration: _fieldDecoration(hintText: platform.hint),
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              enableSuggestions: false,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -310,6 +363,12 @@ class _ContactFormState extends State<ContactForm> {
                   validator: _validateEmail,
                 ),
                 const SizedBox(height: 16),
+
+                // Social media
+                _fieldLabel('Social Media'),
+                const SizedBox(height: 2),
+                ...SocialPlatform.all.map(_socialField),
+                const SizedBox(height: 4),
 
                 // Notes
                 _fieldLabel('Notes'),

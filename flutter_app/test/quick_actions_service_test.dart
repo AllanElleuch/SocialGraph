@@ -75,4 +75,16 @@ void main() {
       expect(QuickActionsService.sanitizePhone('()- '), isNull);
     });
   });
+
+  group('QuickActionsService.whatsappUri', () {
+    test('builds a wa.me link with digits only (drops +, spaces, dashes)', () {
+      expect(QuickActionsService.whatsappUri('+1 (555) 123-4567').toString(),
+          'https://wa.me/15551234567');
+    });
+
+    test('returns null for blank or digitless input', () {
+      expect(QuickActionsService.whatsappUri(''), isNull);
+      expect(QuickActionsService.whatsappUri('+ '), isNull);
+    });
+  });
 }

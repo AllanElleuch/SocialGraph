@@ -46,6 +46,19 @@ class QuickActionsService {
     return Uri(scheme: 'mailto', path: trimmed);
   }
 
+  /// Builds a `https://wa.me/<number>` click-to-chat URI for [phone], or `null`
+  /// if blank. wa.me requires the number in international format with only
+  /// digits (no `+`, spaces, or separators). Opening it lets WhatsApp itself
+  /// confirm whether the number is registered — there is no API to know that in
+  /// advance.
+  static Uri? whatsappUri(String phone) {
+    final sanitized = sanitizePhone(phone);
+    if (sanitized == null) return null;
+    final digits = sanitized.replaceAll('+', '');
+    if (digits.isEmpty) return null;
+    return Uri.parse('https://wa.me/$digits');
+  }
+
   /// Launches the phone dialer for [phone]. Returns `false` on blank input or
   /// launch failure.
   Future<bool> call(String phone) => _launch(telUri(phone));
@@ -58,10 +71,23 @@ class QuickActionsService {
   /// or launch failure.
   Future<bool> email(String address) => _launch(mailtoUri(address));
 
-  Future<bool> _launch(Uri? uri) async {
+  /// Opens WhatsApp (app or web) to chat with [phone]. Returns `false` on blank
+  /// input or launch failure.
+  Future<bool> whatsapp(String phone) =>
+      _launch(whatsappUri(phone), mode: LaunchMode.externalApplication);
+
+  /// Opens an arbitrary [uri] (e.g. a social-media profile) in the default
+  /// external app/browser. Returns `false` when [uri] is null or launch fails.
+  Future<bool> open(Uri? uri) =>
+      _launch(uri, mode: LaunchMode.externalApplication);
+
+  Future<bool> _launch(Uri? uri, {LaunchMode? mode}) async {
     if (uri == null) return false;
     try {
-      return await launchUrl(uri);
+      return await launchUrl(
+        uri,
+        mode: mode ?? LaunchMode.platformDefault,
+      );
     } catch (e) {
       debugPrint('QuickActionsService launch failed for $uri: $e');
       return false;

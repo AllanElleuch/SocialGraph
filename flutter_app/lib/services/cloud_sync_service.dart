@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -57,18 +59,33 @@ Contact _pickNewer(Contact local, Contact remote) {
 
 /// Hosted sync of contacts via Cloud Firestore.
 ///
-/// Each user's contacts live in a single document `users/{uid}` with a
-/// `contacts` field holding a JSON array of [Contact.toJson] maps. No Firestore
-/// access happens at construction time.
+/// Firestore caps a single document at 1 MiB, which a large address book
+/// (especially with embedded photo thumbnails) easily exceeds — Firestore
+/// reports the overflow as `invalid-argument`. To stay under the cap, contacts
+/// are stored across size-bounded documents in a `contactChunks` subcollection
+/// under `users/{uid}` rather than inline in the parent document. The parent
+/// document holds only lightweight metadata (`contactCount`, `chunkCount`,
+/// `updatedAt`). No Firestore access happens at construction time.
 class CloudSyncService {
   CloudSyncService({FirebaseFirestore? firestore}) : _firestore = firestore;
 
   final FirebaseFirestore? _firestore;
 
+  /// Target maximum encoded size of the contacts payload per chunk document, in
+  /// bytes. Kept well under Firestore's 1 MiB hard limit to leave headroom for
+  /// field-name and array-index overhead the SDK adds on top of the JSON bytes.
+  static const int _maxChunkBytes = 700 * 1024;
+
   FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
   DocumentReference<Map<String, dynamic>> _userDoc(String uid) =>
       _db.collection('users').doc(uid);
+
+  CollectionReference<Map<String, dynamic>> _chunks(String uid) =>
+      _userDoc(uid).collection('contactChunks');
+
+  /// Zero-padded chunk document id so lexical ordering matches write order.
+  String _chunkId(int index) => index.toString().padLeft(6, '0');
 
   List<Contact> _contactsFromData(Map<String, dynamic>? data) {
     if (data == null) return [];
@@ -80,9 +97,40 @@ class CloudSyncService {
         .toList();
   }
 
-  /// Reads the user's contacts. Returns `[]` if the document is missing.
+  /// Splits [contacts] into slices whose encoded JSON stays under
+  /// [_maxChunkBytes]. A single contact larger than the budget still gets its
+  /// own (over-budget) chunk rather than being dropped.
+  List<List<Map<String, dynamic>>> _chunkContacts(List<Contact> contacts) {
+    final chunks = <List<Map<String, dynamic>>>[];
+    var current = <Map<String, dynamic>>[];
+    var currentBytes = 0;
+    for (final contact in contacts) {
+      final json = contact.toJson();
+      final bytes = utf8.encode(jsonEncode(json)).length;
+      if (current.isNotEmpty && currentBytes + bytes > _maxChunkBytes) {
+        chunks.add(current);
+        current = <Map<String, dynamic>>[];
+        currentBytes = 0;
+      }
+      current.add(json);
+      currentBytes += bytes;
+    }
+    if (current.isNotEmpty) chunks.add(current);
+    return chunks;
+  }
+
+  /// Reads the user's contacts. Returns `[]` if nothing is stored.
   Future<List<Contact>> pull(String uid) async {
     try {
+      final chunksSnap =
+          await _chunks(uid).orderBy(FieldPath.documentId).get();
+      if (chunksSnap.docs.isNotEmpty) {
+        return chunksSnap.docs
+            .expand((doc) => _contactsFromData(doc.data()))
+            .toList();
+      }
+      // Legacy fallback: contacts stored inline on the parent document by a
+      // pre-chunking version. Returns [] when the document is missing.
       final snapshot = await _userDoc(uid).get();
       if (!snapshot.exists) return [];
       return _contactsFromData(snapshot.data());
@@ -91,12 +139,32 @@ class CloudSyncService {
     }
   }
 
-  /// Writes the user's contacts, merging with any existing fields.
+  /// Writes the user's contacts as size-bounded chunk documents, replacing any
+  /// previous chunks, and updates the parent document's metadata.
   Future<void> push(String uid, List<Contact> contacts) async {
     try {
+      final chunks = _chunkContacts(contacts);
+      final chunksRef = _chunks(uid);
+
+      // Write the current chunks (overwriting indices 0..n-1).
+      for (var i = 0; i < chunks.length; i++) {
+        await chunksRef.doc(_chunkId(i)).set({'contacts': chunks[i]});
+      }
+      // Drop any leftover chunks from a previously larger sync.
+      final existing = await chunksRef.get();
+      for (final doc in existing.docs) {
+        final index = int.tryParse(doc.id);
+        if (index == null || index >= chunks.length) {
+          await doc.reference.delete();
+        }
+      }
+      // Update metadata and remove any legacy inline `contacts` array so the
+      // parent document never carries the old oversized payload again.
       await _userDoc(uid).set(
         {
-          'contacts': contacts.map((c) => c.toJson()).toList(),
+          'contactCount': contacts.length,
+          'chunkCount': chunks.length,
+          'contacts': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -106,26 +174,33 @@ class CloudSyncService {
     }
   }
 
-  /// Permanently deletes the user's synced contacts document `users/{uid}`.
+  /// Permanently deletes the user's synced contacts: the `contactChunks`
+  /// subcollection (Firestore does not cascade subcollection deletes) and the
+  /// parent `users/{uid}` document.
   ///
-  /// This removes the top-level sync document only; subcollections such as
-  /// `backups` are not cascaded by Firestore and must be cleared separately
-  /// (see [CloudBackupService.deleteAllBackups]).
+  /// Other subcollections such as `backups` are cleared separately
+  /// (see [CloudBackupService]).
   Future<void> deleteUserData(String uid) async {
     try {
+      final chunks = await _chunks(uid).get();
+      for (final doc in chunks.docs) {
+        await doc.reference.delete();
+      }
       await _userDoc(uid).delete();
-      debugPrint('CloudSync: deleted user document for $uid');
+      debugPrint('CloudSync: deleted user document and '
+          '${chunks.docs.length} chunk(s) for $uid');
     } catch (e) {
       throw CloudSyncException('Failed to delete data for $uid: $e');
     }
   }
 
-  /// Streams the user's contacts as the document changes.
+  /// Streams the user's contacts as the chunk documents change.
   Stream<List<Contact>> watch(String uid) {
-    return _userDoc(uid).snapshots().map((snapshot) {
-      if (!snapshot.exists) return <Contact>[];
-      return _contactsFromData(snapshot.data());
-    });
+    return _chunks(uid).orderBy(FieldPath.documentId).snapshots().map(
+          (snapshot) => snapshot.docs
+              .expand((doc) => _contactsFromData(doc.data()))
+              .toList(),
+        );
   }
 
   /// Pulls remote contacts, reconciles them with [local] using

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
+import 'services/import_dedup.dart';
 import 'services/contact_repository.dart';
 import 'services/contact_search.dart';
 import 'services/interaction_log.dart';
@@ -22,6 +23,7 @@ import 'widgets/contact_card.dart';
 import 'widgets/controls.dart';
 import 'widgets/contact_form.dart';
 import 'widgets/timeline_view.dart';
+import 'widgets/stats_view.dart';
 import 'widgets/merge_review_sheet.dart';
 import 'widgets/needs_attention_view.dart';
 import 'widgets/sign_in_screen.dart';
@@ -425,12 +427,10 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      // Skip contacts already present (matched by display name).
-      final existingNames =
-          _contacts.map((c) => c.displayName.toLowerCase()).toSet();
-      final toAdd = result.contacts
-          .where((c) => !existingNames.contains(c.displayName.toLowerCase()))
-          .toList();
+      // Drop contacts already present and collapse same-person repeats within
+      // the batch (e.g. one person split across several numbered entries, or a
+      // re-import), matching on device id / phone / email / name.
+      final toAdd = dedupeImportedContacts(_contacts, result.contacts);
 
       if (toAdd.isEmpty) {
         _showSnack('No new contacts to import');
@@ -531,6 +531,12 @@ class _HomePageState extends State<HomePage> {
           else if (_pivot == PivotType.time)
             TimelineView(
               contacts: _filteredContacts,
+              onSelectContact: (c) => setState(() => _selectedContact = c),
+            )
+          else if (_pivot == PivotType.stats)
+            StatsView(
+              contacts: _contacts,
+              now: DateTime.now(),
               onSelectContact: (c) => setState(() => _selectedContact = c),
             )
           else
@@ -689,28 +695,6 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
-                  if (!kIsWeb)
-                    IconButton(
-                      onPressed: _importing ? null : _importFromPhone,
-                      tooltip: 'Import phone contacts',
-                      icon: _importing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xFF6366f1),
-                              ),
-                            )
-                          : const Icon(Icons.contact_phone_outlined,
-                              color: Color(0xFF6b7280), size: 20),
-                    ),
-                  IconButton(
-                    onPressed: _showInfo,
-                    tooltip: 'About this view',
-                    icon: const Icon(Icons.info_outline,
-                        color: Color(0xFF6b7280), size: 20),
-                  ),
                   PopupMenuButton<String>(
                     tooltip: 'More',
                     color: const Color(0xFF1a1a1a),
@@ -718,6 +702,10 @@ class _HomePageState extends State<HomePage> {
                         color: Color(0xFF6b7280), size: 20),
                     onSelected: (value) {
                       switch (value) {
+                        case 'import':
+                          if (!_importing) _importFromPhone();
+                        case 'info':
+                          _showInfo();
                         case 'attention':
                           _openNeedsAttention();
                         case 'duplicates':
@@ -725,16 +713,22 @@ class _HomePageState extends State<HomePage> {
                       }
                     },
                     itemBuilder: (ctx) => [
-                      const PopupMenuItem(
-                        value: 'attention',
-                        child: Text('Needs attention',
-                            style: TextStyle(color: Color(0xFFe2e8f0))),
-                      ),
-                      const PopupMenuItem(
-                        value: 'duplicates',
-                        child: Text('Review duplicates',
-                            style: TextStyle(color: Color(0xFFe2e8f0))),
-                      ),
+                      // Phone import is mobile-only; hidden on web.
+                      if (!kIsWeb)
+                        _menuItem(
+                          'import',
+                          _importing
+                              ? Icons.hourglass_top
+                              : Icons.contact_phone_outlined,
+                          _importing ? 'Importing…' : 'Import phone contacts',
+                          enabled: !_importing,
+                        ),
+                      _menuItem('info', Icons.info_outline, 'About this view'),
+                      const PopupMenuDivider(),
+                      _menuItem('attention', Icons.notifications_outlined,
+                          'Needs attention'),
+                      _menuItem(
+                          'duplicates', Icons.merge_type, 'Review duplicates'),
                     ],
                   ),
                 ],
@@ -742,6 +736,29 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Builds a three-dot menu row with a leading icon, matching the header
+  /// palette. Disabled rows render in the muted color.
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label, {
+    bool enabled = true,
+  }) {
+    final textColor =
+        enabled ? const Color(0xFFe2e8f0) : const Color(0xFF6b7280);
+    return PopupMenuItem<String>(
+      value: value,
+      enabled: enabled,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF9ca3af)),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(color: textColor)),
+        ],
       ),
     );
   }
@@ -765,6 +782,12 @@ class _HomePageState extends State<HomePage> {
         Icons.schedule,
         'Timeline',
         'Order contacts chronologically by the date you first met.',
+      ),
+      (
+        PivotType.stats,
+        Icons.emoji_events_outlined,
+        'Stats',
+        'Fun stats and badges that gamify growing and tending your network.',
       ),
     ];
 
@@ -859,6 +882,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildLegend() {
+    // The Stats tab is a full dashboard, not a clustered graph — no legend.
+    if (_pivot == PivotType.stats) return const SizedBox.shrink();
     return Positioned(
       // Sit above the bottom controls bar (≈52px tall at bottom: 32) so the
       // two never overlap on narrow screens.
