@@ -164,7 +164,8 @@ class _GraphViewState extends State<GraphView>
       final a = byId[l.sourceId];
       final b = byId[l.targetId];
       if (a == null || b == null) return '';
-      return sharedRelationLabel(a.tags, b.tags);
+      // Exclude the Imported tag from relationship labels.
+      return sharedRelationLabel(linkingTags(a.tags), linkingTags(b.tags));
     }).toList();
 
     // Optional overlay: connect same-last-name contacts across the sky.
