@@ -41,7 +41,9 @@ import 'widgets/backup_view.dart';
 import 'widgets/settings_view.dart';
 import 'widgets/tag_detail_view.dart';
 import 'widgets/filter_sheet.dart';
+import 'widgets/cluster_list_sheet.dart';
 import 'widgets/contacts_list_view.dart';
+import 'services/cluster_summary.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
 /// offline-first with no auth/cloud features (e.g. config files absent, tests).
@@ -891,6 +893,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  /// Constellation-list button (Mutuals): lists every cluster with its count;
+  /// tapping one focuses it by applying the matching filter.
+  Widget _buildClusterButton() {
+    return IconButton(
+      tooltip: 'Constellations',
+      onPressed: _openClusterList,
+      icon: const Icon(Icons.bubble_chart_outlined,
+          color: Color(0xFF6b7280), size: 20),
+    );
+  }
+
+  Future<void> _openClusterList() {
+    return ClusterListSheet.show(
+      context,
+      clusters: clusterSummaries(_contacts),
+      onSelect: (c) {
+        setState(() {
+          _filter = c.isOrphans
+              ? const ContactFilter(untaggedOnly: true)
+              : ContactFilter(tags: {c.tag});
+        });
+      },
+    );
+  }
+
   Widget _buildHeader() {
     return Positioned(
       top: 0,
@@ -934,6 +961,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                  if (_pivot == PivotType.mutual) _buildClusterButton(),
                   if (_pivot == PivotType.mutual ||
                       _pivot == PivotType.contacts)
                     _buildFilterButton(),

@@ -180,10 +180,36 @@ String sharedRelationLabel(List<String> a, List<String> b) {
   return shared.join(' · ');
 }
 
-const double _cellW = 460.0;
-const double _cellH = 380.0;
+/// Fixed size of a group's core "figure" box, independent of how many nodes it
+/// has — so small groups always read as a recognizable constellation.
+const double _figureScale = 220.0;
+
+/// Target spacing between overflow (satellite) nodes in a large group; their
+/// even golden-angle spread keeps even a 1500-node cluster legible.
+const double _nodeSpacing = 28.0;
+
+/// Empty margin added around the largest group when sizing the grid cells, so
+/// neighbouring constellations never overlap however lopsided the tags are.
+const double _cellMargin = 160.0;
+
+/// Cap on lines drawn from a group's core to its satellites — a big group shows
+/// a few connectors instead of a dense hairball of 1000+ lines.
+const int _maxSatelliteLines = 28;
+
+/// Golden-angle (radians) for phyllotaxis ("sunflower") point spreads.
+final double _goldenAngle = math.pi * (3 - math.sqrt(5));
 
 int _seed(String s) => s.hashCode & 0x7fffffff;
+
+/// Approximate radius a tag-group occupies: the figure half-extent for small
+/// groups, growing with sqrt(node count) for large ones (matching the spiral
+/// overflow layout) so cells can be sized to prevent overlap.
+double _groupRadius(int nodeCount, int starCount) {
+  if (nodeCount <= starCount) return _figureScale * 0.5;
+  final extra = nodeCount - starCount;
+  final spiralR = _figureScale * 0.45 + _nodeSpacing * math.sqrt(extra.toDouble());
+  return math.max(_figureScale * 0.5, spiralR);
+}
 
 /// Lays out [items] (each an `(id, tag)`) as a stable, recognizable night sky:
 /// every distinct non-empty tag becomes a constellation (snapped onto a real
@@ -202,6 +228,17 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
   final namedTags = byTag.keys.where((t) => t.isNotEmpty).toList()..sort();
   final cols = namedTags.isEmpty ? 1 : math.sqrt(namedTags.length).ceil();
 
+  // Size every grid cell to the largest group so groups never overlap — even
+  // one 1500-node cluster among many small ones gets the room it needs.
+  var maxRadius = _figureScale * 0.5;
+  for (var gi = 0; gi < namedTags.length; gi++) {
+    final starCount =
+        kConstellationTemplates[gi % kConstellationTemplates.length].starCount;
+    final r = _groupRadius(byTag[namedTags[gi]]!.length, starCount);
+    if (r > maxRadius) maxRadius = r;
+  }
+  final cellSize = 2 * maxRadius + _cellMargin;
+
   final positions = <String, Offset>{};
   final lines = <({String a, String b})>[];
   final groupIndex = <String, int>{};
@@ -215,13 +252,14 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
 
     final col = gi % cols;
     final row = gi ~/ cols;
-    final jx = (rng.nextDouble() - 0.5) * _cellW * 0.16;
-    final jy = (rng.nextDouble() - 0.5) * _cellH * 0.16;
+    final jitter = _figureScale * 0.12;
+    final jx = (rng.nextDouble() - 0.5) * jitter;
+    final jy = (rng.nextDouble() - 0.5) * jitter;
     final center = Offset(
-      col * _cellW + _cellW / 2 + jx,
-      row * _cellH + _cellH / 2 + jy,
+      col * cellSize + cellSize / 2 + jx,
+      row * cellSize + cellSize / 2 + jy,
     );
-    final figureScale = math.min(_cellW, _cellH) * 0.62;
+    final figureScale = _figureScale;
 
     groups.add(ConstellationGroup(
       tag: tag,
@@ -243,20 +281,20 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
       }
     }
 
-    // Overflow: extra members orbit the figure as satellite stars. Each is
-    // linked to one of the figure stars so every member of a tag-group is
-    // visibly connected — sharing a tag always shows a line, even when the
-    // group is far larger than its star pattern.
+    // Overflow: extra members spread evenly around the figure on a golden-angle
+    // (phyllotaxis) spiral, so even a 1500-node group fills a clean, gap-free
+    // disc with no pile-up and no overlap with neighbours. Only the first few
+    // link to the core, so a huge group shows a handful of connectors instead
+    // of a dense hairball.
     final extra = ids.length - used;
-    if (extra > 0) {
-      final spread = figureScale * 0.55 * (1 + math.sqrt(extra) / 7);
-      for (var i = used; i < ids.length; i++) {
-        final ang = rng.nextDouble() * 2 * math.pi;
-        final r = spread * math.sqrt(rng.nextDouble());
-        positions[ids[i]] =
-            center + Offset(math.cos(ang) * r, math.sin(ang) * r);
-        groupIndex[ids[i]] = gi;
-        lines.add((a: ids[i % used], b: ids[i]));
+    for (var k = 0; k < extra; k++) {
+      final id = ids[used + k];
+      final theta = k * _goldenAngle;
+      final r = figureScale * 0.45 + _nodeSpacing * math.sqrt(k + 1.0);
+      positions[id] = center + Offset(math.cos(theta) * r, math.sin(theta) * r);
+      groupIndex[id] = gi;
+      if (k < _maxSatelliteLines && used > 0) {
+        lines.add((a: ids[k % used], b: id));
       }
     }
   }
@@ -270,7 +308,7 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
   if (loose.isNotEmpty) {
     final orphanIndex = namedTags.length;
     final rows = namedTags.isEmpty ? 0 : (namedTags.length / cols).ceil();
-    final bandTop = rows * _cellH + (rows == 0 ? 0.0 : 80.0);
+    final bandTop = rows * cellSize + (rows == 0 ? 0.0 : 80.0);
     const cell = 74.0;
     final looseCols = math.sqrt(loose.length).ceil();
     final looseRows = (loose.length / looseCols).ceil();

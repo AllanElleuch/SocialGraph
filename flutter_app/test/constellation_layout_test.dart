@@ -69,6 +69,33 @@ void main() {
     expect(linked.length, 30);
   });
 
+  test('a 1500-node cluster spreads evenly, caps lines, and stays in its cell',
+      () {
+    final sky = computeConstellationSky(items({'Big': 1500, 'Small': 4}));
+    expect(sky.positions.length, 1504);
+
+    // Even spread: every Big node has a distinct position (no pile-up).
+    final bigPositions = sky.positions.entries
+        .where((e) => e.key.startsWith('Big'))
+        .map((e) => e.value)
+        .toSet();
+    expect(bigPositions.length, 1500);
+
+    // No hairball: lines among Big are capped (figure edges + a few satellites),
+    // not ~1500.
+    final bigLines = sky.lines.where((l) => l.a.startsWith('Big')).length;
+    expect(bigLines, lessThan(60));
+
+    // No overlap with the neighbouring constellation: every Big node is closer
+    // to Big's center than to Small's, so the clusters don't bleed together.
+    final bigCenter = sky.groups.firstWhere((g) => g.tag == 'Big').center;
+    final smallCenter = sky.groups.firstWhere((g) => g.tag == 'Small').center;
+    for (final e in sky.positions.entries.where((e) => e.key.startsWith('Big'))) {
+      expect((e.value - bigCenter).distance,
+          lessThan((e.value - smallCenter).distance));
+    }
+  });
+
   test('figure lines connect real, same-group contacts', () {
     final sky = computeConstellationSky(items({'Work': 8, 'Family': 6}));
     expect(sky.lines, isNotEmpty);
