@@ -64,12 +64,20 @@ class _GraphViewState extends State<GraphView>
   final TransformationController _transformController =
       TransformationController();
 
+  /// One-shot controller animating double-tap zoom-in. Null when idle.
+  AnimationController? _zoomController;
+
   GraphNode? _draggedNode;
 
   /// The node under the most recent pointer-down, used to turn a press-release
   /// without movement into a selection (a tap) even while panning is enabled.
   GraphNode? _pressedNode;
   Offset? _lastFocalPoint;
+
+  /// Time and screen position of the last tap on empty space, used to detect a
+  /// double-tap there (which zooms in toward the point).
+  DateTime? _lastEmptyTapTime;
+  Offset? _lastEmptyTapPos;
 
   bool _graphBuilt = false;
 
@@ -401,16 +409,41 @@ class _GraphViewState extends State<GraphView>
     _lastFocalPoint = null;
   }
 
-  /// Handles a single tap on empty space (Mutuals view): if it lands on a tag
-  /// edge (a tag linking two nodes) or a constellation name label, opens that
-  /// tag via [GraphView.onOpenTag].
+  /// Handles a tap on empty space (Mutuals view). If it lands on a tag edge or
+  /// a constellation name label, opens that tag. Otherwise it's truly empty
+  /// space: a double-tap there zooms in toward the tapped point.
   void _handleEmptyTap(Offset localPos) {
+    if (widget.pivot != PivotType.mutual) return;
+
+    // A tag under the tap opens on a single tap (edge first, then label).
     final onOpenTag = widget.onOpenTag;
-    if (onOpenTag == null || widget.pivot != PivotType.mutual) return;
-    // Prefer an edge under the tap (a tag linking two nodes); fall back to a
-    // constellation name label.
-    final tag = _edgeTagAt(localPos) ?? _tagLabelAt(localPos);
-    if (tag != null && tag.isNotEmpty) onOpenTag(tag);
+    if (onOpenTag != null) {
+      final tag = _edgeTagAt(localPos) ?? _tagLabelAt(localPos);
+      if (tag != null && tag.isNotEmpty) {
+        onOpenTag(tag);
+        _lastEmptyTapTime = null;
+        _lastEmptyTapPos = null;
+        return;
+      }
+    }
+
+    // Truly empty space: detect a double-tap (two quick taps near each other)
+    // and zoom toward it.
+    final now = DateTime.now();
+    final prevTime = _lastEmptyTapTime;
+    final prevPos = _lastEmptyTapPos;
+    final isDoubleTap = prevTime != null &&
+        prevPos != null &&
+        now.difference(prevTime) < const Duration(milliseconds: 300) &&
+        (localPos - prevPos).distance < 48;
+    if (isDoubleTap) {
+      _lastEmptyTapTime = null;
+      _lastEmptyTapPos = null;
+      _zoomTowards(localPos);
+    } else {
+      _lastEmptyTapTime = now;
+      _lastEmptyTapPos = localPos;
+    }
   }
 
   /// The shared tag of the graph edge nearest [localPos] (screen coords), or
@@ -468,9 +501,49 @@ class _GraphViewState extends State<GraphView>
       image.dispose();
     }
     _photos.clear();
+    _zoomController?.dispose();
     _animController.dispose();
     _transformController.dispose();
     super.dispose();
+  }
+
+  /// The maximum zoom scale: large enough that a single node can more than fill
+  /// the screen, independent of how many nodes there are.
+  double _maxScale() {
+    const maxNodeRadius = kNodeBaseRadius + kStrengthRadiusFactor;
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return (shortestSide * 1.6 / (2 * maxNodeRadius)).clamp(8.0, 60.0);
+  }
+
+  /// Animates the view transform to [target] over a short ease.
+  void _animateTransformTo(Matrix4 target) {
+    _zoomController?.dispose();
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _zoomController = controller;
+    final tween = Matrix4Tween(begin: _transformController.value, end: target);
+    final anim = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
+    void onTick() => _transformController.value = tween.evaluate(anim);
+    controller.addListener(onTick);
+    controller.forward();
+  }
+
+  /// Zooms in by ~1.8× centered on [screenPoint] (so the tapped spot stays put),
+  /// clamped to the max scale. Used by double-tap on empty space.
+  void _zoomTowards(Offset screenPoint) {
+    final current = _transformController.value;
+    final currentScale = current.getMaxScaleOnAxis();
+    final factor = (_maxScale() / currentScale).clamp(1.0, 1.8);
+    if (factor <= 1.0001) return; // already at max zoom
+    _autoFit = false;
+    // Apply a zoom about the screen focal point: M' = S · M.
+    final zoomAboutPoint =
+        Matrix4.translationValues(screenPoint.dx, screenPoint.dy, 0) *
+            Matrix4.diagonal3Values(factor, factor, 1) *
+            Matrix4.translationValues(-screenPoint.dx, -screenPoint.dy, 0);
+    _animateTransformTo(zoomAboutPoint * current);
   }
 
   @override
@@ -488,14 +561,9 @@ class _GraphViewState extends State<GraphView>
     final maxTime = times.isEmpty ? 0.0 : times.reduce(max);
 
     // Allow zooming in until a single node more than fills the screen,
-    // regardless of how many nodes there are. A node's core is at most
-    // `kNodeBaseRadius + kStrengthRadiusFactor` content px, so the scale that
-    // makes its diameter ≈ 1.6× the screen's short side is the cap we want.
-    // minScale is low enough to frame a huge sky as an overview.
-    const maxNodeRadius = kNodeBaseRadius + kStrengthRadiusFactor;
-    final shortestSide = MediaQuery.of(context).size.shortestSide;
-    final maxScale =
-        (shortestSide * 1.6 / (2 * maxNodeRadius)).clamp(8.0, 60.0);
+    // regardless of how many nodes there are (see [_maxScale]). minScale is low
+    // enough to frame a huge sky as an overview.
+    final maxScale = _maxScale();
 
     return Stack(
       children: [

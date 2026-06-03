@@ -251,7 +251,27 @@ class GraphPainter extends CustomPainter {
   /// fade when a constellation is selected.
   void _drawConstellationNames(Canvas canvas, double scale, int? selectedCluster) {
     if (constellationLabels.isEmpty || scale > 2.4) return;
-    for (final g in constellationLabels) {
+
+    // Minimum vertical gap between two labels (kept constant on screen).
+    final gap = 16 / scale;
+
+    // Place labels in priority order so collisions are resolved deterministically
+    // and the focused constellation keeps its natural spot: selected first, then
+    // stable index order.
+    final groups = [...constellationLabels]
+      ..sort((a, b) {
+        int rank(ConstellationGroup g) =>
+            (selectedCluster != null && g.index == selectedCluster) ? 0 : 1;
+        final r = rank(a).compareTo(rank(b));
+        return r != 0 ? r : a.index.compareTo(b.index);
+      });
+
+    // Rects of labels already committed this frame, so the next label can be
+    // nudged clear of them (gigantic labels of nearby groups would otherwise
+    // overlap when zoomed out).
+    final placed = <Rect>[];
+
+    for (final g in groups) {
       final dim = selectedCluster == null
           ? 1.0
           : (g.index == selectedCluster ? 1.0 : 0.18);
@@ -268,11 +288,28 @@ class GraphPainter extends CustomPainter {
         ),
         textDirection: TextDirection.ltr,
       )..layout();
+
       // Centered horizontally, sitting just below the figure's center band.
-      tp.paint(
-        canvas,
-        Offset(g.center.dx - tp.width / 2, g.center.dy + 150 / scale),
-      );
+      final left = g.center.dx - tp.width / 2;
+      var top = g.center.dy + 150 / scale;
+
+      // Drop the label below any already-placed label it would overlap, so two
+      // adjacent constellations stack vertically instead of colliding.
+      Rect rectAt(double t) => Rect.fromLTWH(left, t, tp.width, tp.height);
+      var rect = rectAt(top);
+      var guard = 0;
+      while (guard < 64) {
+        final clashes = placed.where((p) => p.overlaps(rect));
+        if (clashes.isEmpty) break;
+        final lowest =
+            clashes.map((p) => p.bottom).reduce((a, b) => a > b ? a : b);
+        top = lowest + gap;
+        rect = rectAt(top);
+        guard++;
+      }
+
+      placed.add(rect);
+      tp.paint(canvas, Offset(left, top));
     }
   }
 
