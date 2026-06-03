@@ -226,18 +226,24 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
     }
   }
 
-  // Loose (untagged) contacts: a wide band below the constellation grid.
+  // Loose (untagged) contacts: a 2D jittered grid below the constellation grid.
+  // A grid (rather than a thin random band) keeps thousands of unconnected
+  // stars evenly spread instead of piling on top of each other — which both
+  // looks better and avoids heavy overdraw.
   final loose = byTag[''] ?? const [];
   if (loose.isNotEmpty) {
     final rows = namedTags.isEmpty ? 0 : (namedTags.length / cols).ceil();
     final bandTop = rows * _cellH + (rows == 0 ? 0.0 : 80.0);
-    final bandW = math.max(1, cols) * _cellW;
-    final bandH = math.max(280.0, loose.length * 0.9);
-    for (final id in loose) {
+    const cell = 74.0;
+    final looseCols = math.sqrt(loose.length).ceil();
+    for (var i = 0; i < loose.length; i++) {
+      final id = loose[i];
       final rng = math.Random(_seed(id));
+      final col = i % looseCols;
+      final row = i ~/ looseCols;
       positions[id] = Offset(
-        rng.nextDouble() * bandW,
-        bandTop + rng.nextDouble() * bandH,
+        col * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
+        bandTop + row * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
       );
       groupIndex[id] = kLooseGroupIndex;
     }

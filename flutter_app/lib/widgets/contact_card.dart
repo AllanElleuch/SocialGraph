@@ -38,6 +38,10 @@ class ContactCard extends StatelessWidget {
   /// Called when a relative row is tapped (parent selects that contact).
   final void Function(Contact relative)? onSelectRelative;
 
+  /// Called when a tag chip is double-tapped, to open that tag's detail/bulk-
+  /// tagging view. Null disables the gesture.
+  final void Function(String tag)? onOpenTag;
+
   ContactCard({
     super.key,
     required this.contact,
@@ -49,6 +53,7 @@ class ContactCard extends StatelessWidget {
     this.tagCounts = const {},
     this.relatives = const [],
     this.onSelectRelative,
+    this.onOpenTag,
     QuickActionsService? quickActions,
   }) : quickActions = quickActions ?? QuickActionsService();
 
@@ -725,7 +730,7 @@ class ContactCard extends StatelessWidget {
 
   Widget _tagChip(String tag) {
     final count = tagCounts[tag.trim()] ?? 0;
-    return Container(
+    final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: const Color(0xFF6366f1).withValues(alpha: 0.1),
@@ -761,6 +766,12 @@ class ContactCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+    if (onOpenTag == null) return chip;
+    return GestureDetector(
+      // Double-tap a tag to open its detail / bulk-tagging view.
+      onDoubleTap: () => onOpenTag!.call(tag),
+      child: chip,
     );
   }
 }

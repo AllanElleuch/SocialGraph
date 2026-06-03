@@ -6,6 +6,7 @@ import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
 import 'services/import_dedup.dart';
 import 'services/tag_usage.dart';
+import 'services/tag_membership.dart';
 import 'services/relatives.dart';
 import 'services/contact_repository.dart';
 import 'services/contact_search.dart';
@@ -37,6 +38,7 @@ import 'widgets/needs_attention_view.dart';
 import 'widgets/sign_in_screen.dart';
 import 'widgets/backup_view.dart';
 import 'widgets/settings_view.dart';
+import 'widgets/tag_detail_view.dart';
 import 'widgets/filter_sheet.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
@@ -562,6 +564,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Upserts [contact] into the local list and persists locally (and to the
   /// cloud when signed in).
+  /// Opens the tag-detail view for bulk add/remove of people to [tag].
+  void _openTagDetail(String tag) {
+    TagDetailView.show(
+      context,
+      tag: tag,
+      contacts: _contacts,
+      onApply: (memberIds) => _applyTagMembership(tag, memberIds),
+    );
+  }
+
+  /// Sets [tag] on exactly the contacts in [memberIds] (adding/removing as
+  /// needed), then persists. Reports how many contacts changed.
+  Future<void> _applyTagMembership(String tag, Set<String> memberIds) async {
+    final before = _contacts;
+    final updated = applyTagMembership(before, tag, memberIds, now: DateTime.now());
+    var changed = 0;
+    for (var i = 0; i < updated.length; i++) {
+      if (!identical(updated[i], before[i])) changed++;
+    }
+    if (changed == 0) return;
+    setState(() {
+      _contacts = updated;
+      final selectedId = _selectedContact?.id;
+      if (selectedId != null) {
+        _selectedContact =
+            updated.firstWhere((c) => c.id == selectedId, orElse: () => _selectedContact!);
+      }
+    });
+    await _persist();
+    if (mounted) {
+      _showSnack('Updated "$tag" on $changed '
+          'contact${changed == 1 ? '' : 's'}');
+    }
+  }
+
   Future<void> _onFormSave(Contact contact) async {
     setState(() {
       if (_editingContact != null) {
@@ -750,6 +787,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ? relativesOf(_selectedContact!, _contacts)
                 : const [],
             onSelectRelative: (r) => setState(() => _selectedContact = r),
+            onOpenTag: _openTagDetail,
             onClose: () => setState(() => _selectedContact = null),
             onEdit: _selectedContact != null
                 ? () => _openEditForm(_selectedContact!)

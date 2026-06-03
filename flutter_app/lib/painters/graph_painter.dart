@@ -122,11 +122,28 @@ class GraphPainter extends CustomPainter {
   /// Show labels only past this on-screen zoom scale (keeps the far view clean).
   static const double _labelScale = 1.6;
 
-  /// Below this on-screen radius a star collapses to a cheap point of light
-  /// (a photo would be sub-pixel and meaningless there).
-  static const double _pointPx = 2.5;
+  /// Level-of-detail thresholds (on-screen node radius, logical px):
+  ///  - below [_pointPx]: a cheap point of light (no glow/disc/photo);
+  ///  - below [_glowPx]: a flat colored disc + core (no soft glow, no rim);
+  ///  - below [_photoPx]: a glowing star, but no photo;
+  ///  - at/above [_photoPx]: the full star with its photo.
+  /// This keeps frames cheap at overview, where ~1500 nodes are all tiny.
+  static const double _pointPx = 3.5;
+  static const double _glowPx = 7.0;
+  static const double _photoPx = 12.0;
 
-  double _strengthOf(GraphNode node) => strengthScore(node.data, now: now);
+  /// Relationship strength (0..100) per node id, computed once for this painter
+  /// rather than per frame — recomputing it for ~1500 nodes on every twinkle
+  /// frame was a major cost. `late final` so it's built on first paint.
+  late final Map<String, double> _strengthById = {
+    for (final n in nodes) n.id: strengthScore(n.data, now: now),
+  };
+
+  /// Node lookup by id, built once (used by links, stars and edge labels).
+  late final Map<String, GraphNode> _byId = {for (final n in nodes) n.id: n};
+
+  double _strengthOf(GraphNode node) =>
+      _strengthById[node.id] ?? strengthScore(node.data, now: now);
 
   Color _starColor(GraphNode node, double strength) {
     if (pivot == PivotType.time) {
@@ -149,11 +166,9 @@ class GraphPainter extends CustomPainter {
     final selectedCluster =
         (selectedId != null && clusters.isNotEmpty) ? clusters[selectedId] : null;
 
-    final byId = {for (final n in nodes) n.id: n};
-
-    _drawLinks(canvas, byId, scale, selectedCluster);
+    _drawLinks(canvas, _byId, scale, selectedCluster);
     _drawStars(canvas, scale, visible, time, selectedCluster);
-    _drawEdgeLabels(canvas, byId, scale, visible, selectedCluster);
+    _drawEdgeLabels(canvas, _byId, scale, visible, selectedCluster);
     _drawConstellationNames(canvas, scale, selectedCluster);
   }
 
@@ -198,10 +213,10 @@ class GraphPainter extends CustomPainter {
 
   void _drawEdgeLabel(
       Canvas canvas, String label, Offset mid, double scale, double dim) {
-    // Grow the label as the user zooms in (so it actually becomes readable),
-    // capped so it never gets absurd. `fc` is the content-space font size that
-    // renders to `onScreen` logical px after the view transform.
-    final onScreen = (scale * 13.0).clamp(20.0, 60.0);
+    // The label keeps growing as the user zooms in (with a high ceiling so it
+    // can get large), staying readable. `fc` is the content-space font size
+    // that renders to `onScreen` logical px after the view transform.
+    final onScreen = (scale * 18.0).clamp(24.0, 160.0);
     final fc = onScreen / scale;
     final tp = TextPainter(
       text: TextSpan(
@@ -369,6 +384,10 @@ class GraphPainter extends CustomPainter {
     int? selectedCluster,
   ) {
     final cull = visible?.inflate(120);
+    // Reused across all nodes to avoid ~thousands of Paint allocations/frame.
+    final fill = Paint()..style = PaintingStyle.fill;
+    final stroke = Paint()..style = PaintingStyle.stroke;
+
     for (final node in nodes) {
       final center = Offset(node.x, node.y);
       if (cull != null && !cull.contains(center)) continue;
@@ -383,27 +402,23 @@ class GraphPainter extends CustomPainter {
       final tw = twinkleBrightness(time, twinklePhaseFor(node.id));
       final screenRadius = radius * scale;
 
-      // Far away: a cheap point of light, no glow/photo.
+      // Tier 0 — a cheap point of light (overview / very large sets).
       if (screenRadius < _pointPx) {
-        final r = math.max(0.8, 1.4 / scale);
-        canvas.drawCircle(
-          center,
-          r,
-          Paint()
-            ..color = Color.lerp(color, Colors.white, 0.5)!
-                .withValues(alpha: (0.85 * dim * tw).clamp(0.0, 1.0)),
-        );
+        fill.color = Color.lerp(color, Colors.white, 0.5)!
+            .withValues(alpha: (0.85 * dim * tw).clamp(0.0, 1.0));
+        canvas.drawCircle(center, math.max(0.8, 1.4 / scale), fill);
         continue;
       }
 
-      // Soft corona.
-      _drawGlow(canvas, center, radius * 3.4,
-          color, (0.5 * dim * tw).clamp(0.0, 1.0));
+      final showGlow = screenRadius >= _glowPx;
+      // Soft corona (only once the node is big enough to warrant it).
+      if (showGlow) {
+        _drawGlow(canvas, center, radius * 3.4, color,
+            (0.5 * dim * tw).clamp(0.0, 1.0));
+      }
 
-      // Photos always show on full stars (any zoom past the point threshold),
-      // not just when zoomed in close.
       final image = photos[node.id];
-      if (image != null) {
+      if (image != null && screenRadius >= _photoPx) {
         final rect = Rect.fromCircle(center: center, radius: radius);
         canvas.save();
         canvas.clipPath(Path()..addOval(rect));
@@ -416,37 +431,23 @@ class GraphPainter extends CustomPainter {
         );
         canvas.restore();
         // Colored corona ring keeps the star identity around the photo.
-        canvas.drawCircle(
-          center,
-          radius,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0 / scale
-            ..color = color.withValues(alpha: (0.9 * dim).clamp(0.0, 1.0)),
-        );
+        stroke
+          ..strokeWidth = 2.0 / scale
+          ..color = color.withValues(alpha: (0.9 * dim).clamp(0.0, 1.0));
+        canvas.drawCircle(center, radius, stroke);
       } else {
         // Star body: colored disc with a hot, near-white core.
-        canvas.drawCircle(
-          center,
-          radius * 0.95,
-          Paint()..color = color.withValues(alpha: (0.95 * dim).clamp(0.0, 1.0)),
-        );
-        canvas.drawCircle(
-          center,
-          radius * 0.45,
-          Paint()
-            ..color = Color.lerp(color, Colors.white, 0.75)!
-                .withValues(alpha: (dim * tw).clamp(0.0, 1.0)),
-        );
-        // Crisp rim.
-        canvas.drawCircle(
-          center,
-          radius,
-          Paint()
-            ..style = PaintingStyle.stroke
+        fill.color = color.withValues(alpha: (0.95 * dim).clamp(0.0, 1.0));
+        canvas.drawCircle(center, radius * 0.95, fill);
+        fill.color = Color.lerp(color, Colors.white, 0.75)!
+            .withValues(alpha: (dim * tw).clamp(0.0, 1.0));
+        canvas.drawCircle(center, radius * 0.45, fill);
+        if (showGlow) {
+          stroke
             ..strokeWidth = 1.2 / scale
-            ..color = Colors.white.withValues(alpha: (0.5 * dim).clamp(0.0, 1.0)),
-        );
+            ..color = Colors.white.withValues(alpha: (0.5 * dim).clamp(0.0, 1.0));
+          canvas.drawCircle(center, radius, stroke);
+        }
       }
 
       // Labels fade in when zoomed in; hidden for dimmed (off-constellation)
