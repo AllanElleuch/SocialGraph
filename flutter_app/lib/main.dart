@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
 import 'services/import_dedup.dart';
+import 'services/tag_usage.dart';
 import 'services/contact_repository.dart';
 import 'services/contact_search.dart';
 import 'services/interaction_log.dart';
@@ -710,6 +711,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Contact Card
           ContactCard(
             contact: _selectedContact,
+            tagCounts: tagUsageCounts(_contacts),
             onClose: () => setState(() => _selectedContact = null),
             onEdit: _selectedContact != null
                 ? () => _openEditForm(_selectedContact!)

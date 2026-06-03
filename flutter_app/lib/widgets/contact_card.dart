@@ -27,6 +27,10 @@ class ContactCard extends StatelessWidget {
   /// Injectable for tests; defaults to the real launcher.
   final QuickActionsService quickActions;
 
+  /// How many contacts use each tag, keyed by tag, so each tag chip can show
+  /// its network-wide usage count. Empty hides the counts.
+  final Map<String, int> tagCounts;
+
   ContactCard({
     super.key,
     required this.contact,
@@ -35,6 +39,7 @@ class ContactCard extends StatelessWidget {
     this.onLogInteraction,
     this.onNext,
     this.onPrevious,
+    this.tagCounts = const {},
     QuickActionsService? quickActions,
   }) : quickActions = quickActions ?? QuickActionsService();
 
@@ -668,6 +673,7 @@ class ContactCard extends StatelessWidget {
   }
 
   Widget _tagChip(String tag) {
+    final count = tagCounts[tag.trim()] ?? 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -676,9 +682,33 @@ class ContactCard extends StatelessWidget {
             Border.all(color: const Color(0xFF6366f1).withValues(alpha: 0.2)),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        tag,
-        style: const TextStyle(color: Color(0xFF818cf8), fontSize: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            tag,
+            style: const TextStyle(color: Color(0xFF818cf8), fontSize: 12),
+          ),
+          if (count > 0) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366f1).withValues(alpha: 0.20),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              // How many contacts share this tag, across the whole network.
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: Color(0xFFa5b4fc),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

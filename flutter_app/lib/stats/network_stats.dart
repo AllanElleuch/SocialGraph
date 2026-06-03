@@ -321,7 +321,10 @@ class GrowthStats {
     final addedDates = <DateTime>[];
 
     for (final c in contacts) {
-      if (c.origin?.isImported == true) {
+      // Classify via [Contact.wasImported] so contacts imported before
+      // provenance tracking (origin == null but carrying the legacy "Imported"
+      // tag) still count as imported, matching the tag breakdown.
+      if (c.wasImported) {
         imported++;
       } else {
         manual++;

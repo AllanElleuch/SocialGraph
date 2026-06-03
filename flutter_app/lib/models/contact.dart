@@ -3,6 +3,11 @@ import 'dart:typed_data';
 
 import '../utils/text_sanitizer.dart';
 
+/// Tag the importer attaches to device-imported contacts. It predates the
+/// structured [ContactOrigin] provenance, so it also serves as a legacy signal
+/// that a contact came from an import (see [Contact.wasImported]).
+const String kImportedTag = 'Imported';
+
 /// Types of logged interactions with a contact.
 enum InteractionType { call, text, email, meeting, note }
 
@@ -173,6 +178,13 @@ class Contact {
 
   /// Whether this contact has a photo thumbnail available.
   bool get hasPhoto => photoThumbnail != null && photoThumbnail!.isNotEmpty;
+
+  /// Whether this contact came from a device import — via structured provenance
+  /// ([origin]), or, for contacts imported before provenance existed, the
+  /// legacy [kImportedTag] tag. Use this (not `origin?.isImported` alone) so
+  /// legacy imports are still classified correctly.
+  bool get wasImported =>
+      origin?.isImported == true || tags.contains(kImportedTag);
 
   String get displayName => '$firstName $lastName'.trim();
 

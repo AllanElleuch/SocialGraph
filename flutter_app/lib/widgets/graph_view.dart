@@ -8,6 +8,7 @@ import '../services/force_simulation.dart';
 import '../painters/graph_painter.dart';
 import '../painters/star_style.dart';
 import '../painters/starfield_painter.dart';
+import '../painters/constellation_layout.dart';
 
 class GraphView extends StatefulWidget {
   final List<Contact> contacts;
@@ -39,9 +40,16 @@ class _GraphViewState extends State<GraphView>
   late List<GraphNode> _nodes;
   late List<GraphLink> _links;
 
-  /// Constellation (connected-component) index per contact id, recomputed
-  /// whenever the graph is (re)built.
+  /// Group index per contact id (tag-constellation in mutual view, connected
+  /// component otherwise), recomputed whenever the graph is (re)built.
   Map<String, int> _clusters = {};
+
+  /// Placed tag-groups for drawing constellation names (mutual view only).
+  List<ConstellationGroup> _constellationLabels = const [];
+
+  /// Relationship label per link (aligned with [_links]): the tags the two
+  /// endpoints share, e.g. "Work · Gym". Empty string = no shared tags.
+  List<String> _edgeLabels = const [];
   ForceSimulation? _simulation;
   late AnimationController _animController;
 
@@ -49,6 +57,10 @@ class _GraphViewState extends State<GraphView>
       TransformationController();
 
   GraphNode? _draggedNode;
+
+  /// The node under the most recent pointer-down, used to turn a press-release
+  /// without movement into a selection (a tap) even while panning is enabled.
+  GraphNode? _pressedNode;
   Offset? _lastFocalPoint;
 
   bool _graphBuilt = false;
@@ -101,6 +113,56 @@ class _GraphViewState extends State<GraphView>
   }
 
   void _buildGraph() {
+    if (widget.pivot == PivotType.mutual) {
+      _buildConstellationSky();
+    } else {
+      _buildForceGraph();
+    }
+
+    // A new node set (e.g. a filter change) snaps back to an overview centered
+    // on the cluster; auto-fit then tracks the layout until the user interacts.
+    _autoFit = true;
+    _fitToNodes();
+    _decodePhotos();
+    _animController.repeat();
+  }
+
+  /// Mutual view: a stable, recognizable night sky. Each tag becomes a real
+  /// constellation pattern; figure lines connect its stars; untagged contacts
+  /// gather in a loose band. Positions are deterministic, so there's no force
+  /// relaxation (no simulation).
+  void _buildConstellationSky() {
+    final items = widget.contacts
+        .map((c) => (id: c.id, tag: c.tags.isNotEmpty ? c.tags.first : ''))
+        .toList();
+    final sky = computeConstellationSky(items);
+
+    _nodes = widget.contacts.map((c) {
+      final p = sky.positions[c.id] ?? Offset.zero;
+      return GraphNode(
+          id: c.id, name: c.displayName, data: c, x: p.dx, y: p.dy);
+    }).toList();
+    _links = sky.lines
+        .map((l) =>
+            GraphLink(sourceId: l.a, targetId: l.b, type: 'connection'))
+        .toList();
+    _clusters = sky.groupIndex;
+    _constellationLabels = sky.groups;
+
+    // Label each line with the tags its two endpoints share (joined inline).
+    final byId = {for (final c in widget.contacts) c.id: c};
+    _edgeLabels = _links.map((l) {
+      final a = byId[l.sourceId];
+      final b = byId[l.targetId];
+      if (a == null || b == null) return '';
+      return sharedRelationLabel(a.tags, b.tags);
+    }).toList();
+
+    _simulation = null;
+  }
+
+  /// Non-mutual pivots keep the force-directed layout.
+  void _buildForceGraph() {
     final rng = Random();
     final size = MediaQuery.of(context).size;
     final cx = size.width / 2;
@@ -117,17 +179,7 @@ class _GraphViewState extends State<GraphView>
     }).toList();
 
     _links = [];
-
-    if (widget.pivot == PivotType.mutual) {
-      for (final c in widget.contacts) {
-        for (final connId in c.connections) {
-          if (c.id.compareTo(connId) < 0) {
-            _links.add(
-                GraphLink(sourceId: c.id, targetId: connId, type: 'connection'));
-          }
-        }
-      }
-    } else if (widget.pivot == PivotType.time) {
+    if (widget.pivot == PivotType.time) {
       final sorted = [...widget.contacts]
         ..sort((a, b) => (a.dateMet?.millisecondsSinceEpoch ?? 0)
             .compareTo(b.dateMet?.millisecondsSinceEpoch ?? 0));
@@ -138,6 +190,8 @@ class _GraphViewState extends State<GraphView>
     }
 
     _clusters = assignClusters(_nodes.map((n) => n.id).toList(), _links);
+    _constellationLabels = const [];
+    _edgeLabels = const [];
 
     _simulation = ForceSimulation(
       nodes: _nodes,
@@ -148,13 +202,6 @@ class _GraphViewState extends State<GraphView>
       centerX: cx,
       centerY: cy,
     );
-
-    // A new node set (e.g. a filter change) snaps back to an overview centered
-    // on the cluster; auto-fit then tracks the layout until the user interacts.
-    _autoFit = true;
-    _fitToNodes();
-    _decodePhotos();
-    _animController.repeat();
   }
 
   /// Frames all current nodes centered in the visible band (between the header
@@ -274,15 +321,19 @@ class _GraphViewState extends State<GraphView>
   }
 
   void _onPointerDown(PointerDownEvent event) {
+    _lastFocalPoint = event.localPosition;
     final node = _hitTest(event.localPosition);
-    if (node != null) {
+    _pressedNode = node;
+    // Node *dragging* only applies to the force-directed layout. In the fixed
+    // constellation sky (no simulation) every press starts a pan; a star is
+    // selected by a tap (handled in _onPointerUp), so dragging from anywhere —
+    // empty space or a star — pans the view.
+    if (node != null && _simulation != null) {
       _draggedNode = node;
-      // Grabbing a node is manual control; stop auto-framing the view.
-      _autoFit = false;
+      _autoFit = false; // grabbing a node is manual control
       node.fx = node.x;
       node.fy = node.y;
       _simulation?.setAlphaTarget(0.3);
-      _lastFocalPoint = event.localPosition;
     }
   }
 
@@ -303,19 +354,21 @@ class _GraphViewState extends State<GraphView>
   }
 
   void _onPointerUp(PointerUpEvent event) {
+    final start = _lastFocalPoint;
+    final movedLittle =
+        start == null || (event.localPosition - start).distance < 5;
+
     if (_draggedNode != null) {
-      // Check if it was a tap (not a drag)
-      if (_lastFocalPoint != null) {
-        final delta = (event.localPosition - _lastFocalPoint!).distance;
-        if (delta < 5) {
-          widget.onSelectContact(_draggedNode!.data);
-        }
-      }
+      if (movedLittle) widget.onSelectContact(_draggedNode!.data);
       _draggedNode!.fx = null;
       _draggedNode!.fy = null;
       _draggedNode = null;
       _simulation?.setAlphaTarget(0);
+    } else if (_pressedNode != null && movedLittle) {
+      // A tap on a star (no pan) selects it.
+      widget.onSelectContact(_pressedNode!.data);
     }
+    _pressedNode = null;
     _lastFocalPoint = null;
   }
 
@@ -361,7 +414,9 @@ class _GraphViewState extends State<GraphView>
             boundaryMargin: const EdgeInsets.all(double.infinity),
             minScale: 0.1,
             maxScale: 8.0,
-            panEnabled: _draggedNode == null,
+            // The fixed constellation sky always pans (drag anywhere, incl.
+            // empty space); only the force layout disables pan mid node-drag.
+            panEnabled: _simulation == null || _draggedNode == null,
             // A real pan/zoom hands control to the user; stop auto-framing so we
             // never fight their gesture.
             onInteractionUpdate: (_) => _autoFit = false,
@@ -377,6 +432,8 @@ class _GraphViewState extends State<GraphView>
                 clusters: _clusters,
                 starColorMode: widget.starColorMode,
                 selectedId: widget.selectedId,
+                constellationLabels: _constellationLabels,
+                edgeLabels: _edgeLabels,
                 viewTransform: _transformController,
                 twinkle: _animController,
               ),

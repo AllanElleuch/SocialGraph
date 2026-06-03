@@ -8,10 +8,15 @@ class TagInput extends StatefulWidget {
   final List<String> initialTags;
   final ValueChanged<List<String>> onTagsChanged;
 
+  /// Usage count per existing tag across all contacts, used to power
+  /// autocomplete suggestions (matches shown with their reference count).
+  final Map<String, int> tagCounts;
+
   const TagInput({
     super.key,
     this.initialTags = const [],
     required this.onTagsChanged,
+    this.tagCounts = const {},
   });
 
   @override
@@ -71,6 +76,7 @@ class _TagInputState extends State<TagInput> {
   void _onSubmitted(String value) {
     _addTag(value);
     _controller.clear();
+    setState(() {}); // refresh suggestions
   }
 
   void _onChanged(String value) {
@@ -81,6 +87,35 @@ class _TagInputState extends State<TagInput> {
       }
       _controller.clear();
     }
+    // Rebuild so the suggestion list reflects the current query.
+    setState(() {});
+  }
+
+  /// Up to [_maxSuggestions] existing tags matching the current query (case
+  /// insensitive), excluding ones already added, ordered by usage desc then
+  /// alphabetically. Empty when the field is empty.
+  static const int _maxSuggestions = 6;
+
+  List<MapEntry<String, int>> _suggestions() {
+    final query = _controller.text.trim().toLowerCase();
+    if (query.isEmpty) return const [];
+    final matches = widget.tagCounts.entries
+        .where((e) =>
+            e.key.toLowerCase().contains(query) && !_tags.contains(e.key))
+        .toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        return byCount != 0
+            ? byCount
+            : a.key.toLowerCase().compareTo(b.key.toLowerCase());
+      });
+    return matches.take(_maxSuggestions).toList();
+  }
+
+  void _onSuggestionTap(String tag) {
+    _addTag(tag);
+    _controller.clear();
+    setState(() {}); // collapse the suggestion list
   }
 
   Widget _buildBadge(String tag) {
@@ -112,8 +147,57 @@ class _TagInputState extends State<TagInput> {
     );
   }
 
+  Widget _buildSuggestions(List<MapEntry<String, int>> suggestions) {
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        border: Border.all(color: const Color(0xFF333333)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < suggestions.length; i++) ...[
+            if (i > 0)
+              const Divider(height: 1, thickness: 1, color: Color(0xFF222222)),
+            InkWell(
+              onTap: () => _onSuggestionTap(suggestions[i].key),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.label_outline,
+                        size: 14, color: Color(0xFF6b7280)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        suggestions[i].key,
+                        style: const TextStyle(
+                            color: Color(0xFFe2e8f0), fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      '${suggestions[i].value}',
+                      style: const TextStyle(
+                          color: Color(0xFF6b7280), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final suggestions = _suggestions();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -150,6 +234,7 @@ class _TagInputState extends State<TagInput> {
             ),
           ),
         ),
+        if (suggestions.isNotEmpty) _buildSuggestions(suggestions),
       ],
     );
   }

@@ -6,6 +6,7 @@ import '../models/graph_node.dart';
 import '../models/contact.dart';
 import '../services/relationship_strength.dart';
 import 'star_style.dart';
+import 'constellation_layout.dart';
 
 /// Base node radius (px) used when strength weighting is disabled or a contact
 /// has zero strength. Setting [kStrengthRadiusFactor] to 0 reproduces the
@@ -68,6 +69,15 @@ class GraphPainter extends CustomPainter {
   /// its constellation stays bright while the rest of the sky dims.
   final String? selectedId;
 
+  /// Placed tag-groups whose names are drawn faintly near their centers (mutual
+  /// constellation view). Empty disables labels.
+  final List<ConstellationGroup> constellationLabels;
+
+  /// Relationship label per link, aligned with [links]: the tags the two
+  /// endpoints share (e.g. "Work · Gym"). Drawn on the line when zoomed in.
+  /// Empty list (or a per-link empty string) draws no label.
+  final List<String> edgeLabels;
+
   /// The live view transform (from the InteractiveViewer's controller), used to
   /// derive zoom scale for level-of-detail, label/photo gating, and viewport
   /// culling. Null in tests → treated as identity (scale 1, no culling).
@@ -91,6 +101,8 @@ class GraphPainter extends CustomPainter {
     this.clusters = const {},
     this.starColorMode = StarColorMode.temperature,
     this.selectedId,
+    this.constellationLabels = const [],
+    this.edgeLabels = const [],
     this.viewTransform,
     this.twinkle,
     DateTime? now,
@@ -141,6 +153,107 @@ class GraphPainter extends CustomPainter {
 
     _drawLinks(canvas, byId, scale, selectedCluster);
     _drawStars(canvas, scale, visible, time, selectedCluster);
+    _drawEdgeLabels(canvas, byId, scale, visible, selectedCluster);
+    _drawConstellationNames(canvas, scale, selectedCluster);
+  }
+
+  /// Minimum on-screen zoom before relationship labels appear on lines (kept
+  /// hidden at overview so the sky stays clean).
+  static const double _edgeLabelScale = 1.25;
+
+  /// Draws the shared-tag relationship label at the midpoint of each line, for
+  /// links currently on screen, once zoomed in past [_edgeLabelScale].
+  void _drawEdgeLabels(
+    Canvas canvas,
+    Map<String, GraphNode> byId,
+    double scale,
+    Rect? visible,
+    int? selectedCluster,
+  ) {
+    if (pivot != PivotType.mutual ||
+        edgeLabels.length != links.length ||
+        scale < _edgeLabelScale) {
+      return;
+    }
+    final cull = visible?.inflate(80);
+    for (var i = 0; i < links.length; i++) {
+      final label = edgeLabels[i];
+      if (label.isEmpty) continue;
+      final s = byId[links[i].sourceId];
+      final t = byId[links[i].targetId];
+      if (s == null || t == null) continue;
+      final mid = Offset((s.x + t.x) / 2, (s.y + t.y) / 2);
+      if (cull != null && !cull.contains(mid)) continue;
+
+      var dim = 1.0;
+      if (selectedCluster != null) {
+        final inSel = clusters[s.id] == selectedCluster &&
+            clusters[t.id] == selectedCluster;
+        if (!inSel) continue; // hide off-focus labels during selection
+        dim = 1.0;
+      }
+      _drawEdgeLabel(canvas, label, mid, scale, dim);
+    }
+  }
+
+  void _drawEdgeLabel(
+      Canvas canvas, String label, Offset mid, double scale, double dim) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: const Color(0xFFE6ECFF)
+              .withValues(alpha: (0.92 * dim).clamp(0.0, 1.0)),
+          fontSize: 10.5 / scale,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final padH = 5 / scale, padV = 2.5 / scale;
+    final rect = Rect.fromCenter(
+      center: mid,
+      width: tp.width + padH * 2,
+      height: tp.height + padV * 2,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(5 / scale)),
+      Paint()
+        ..color = const Color(0xFF0A0E1A)
+            .withValues(alpha: (0.72 * dim).clamp(0.0, 1.0)),
+    );
+    tp.paint(canvas, Offset(mid.dx - tp.width / 2, mid.dy - tp.height / 2));
+  }
+
+  /// Faint, letter-spaced constellation (tag) names near each group, shown only
+  /// at overview-ish zooms so they never clutter a close-up. Off-focus groups
+  /// fade when a constellation is selected.
+  void _drawConstellationNames(Canvas canvas, double scale, int? selectedCluster) {
+    if (constellationLabels.isEmpty || scale > 2.4) return;
+    for (final g in constellationLabels) {
+      final dim = selectedCluster == null
+          ? 1.0
+          : (g.index == selectedCluster ? 1.0 : 0.18);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: g.tag.toUpperCase(),
+          style: TextStyle(
+            color: const Color(0xFFB8C2E0)
+                .withValues(alpha: (0.55 * dim).clamp(0.0, 1.0)),
+            fontSize: 13 / scale,
+            letterSpacing: 3 / scale,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      // Centered horizontally, sitting just below the figure's center band.
+      tp.paint(
+        canvas,
+        Offset(g.center.dx - tp.width / 2, g.center.dy + 150 / scale),
+      );
+    }
   }
 
   Rect? _visibleRect(Matrix4? matrix, Size size) {

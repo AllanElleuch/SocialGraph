@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/contact.dart';
 import '../services/social_links.dart';
+import '../services/tag_usage.dart';
 import 'tag_input.dart';
 import 'address_field.dart';
 import 'connection_picker.dart';
@@ -318,6 +319,7 @@ class _ContactFormState extends State<ContactForm> {
                 TagInput(
                   initialTags: widget.existingContact?.tags ?? [],
                   onTagsChanged: (tags) => _tags = tags,
+                  tagCounts: tagUsageCounts(widget.allContacts),
                 ),
                 const SizedBox(height: 16),
 

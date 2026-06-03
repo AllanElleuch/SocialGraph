@@ -197,6 +197,22 @@ void main() {
       expect(s.streak.currentWeeks, greaterThanOrEqualTo(1));
     });
 
+    test('legacy imports (Imported tag, no origin) count as imported', () {
+      // Contacts imported before provenance tracking carry the "Imported" tag
+      // but have origin == null; they must still be classified as imported so
+      // the growth card agrees with the tag breakdown.
+      final contacts = [
+        _contact(id: 'legacy', tags: const ['Imported']),
+        _contact(id: 'manual'),
+        _contact(id: 'new', origin: ContactOrigin.imported(platform: 'iOS')),
+      ];
+
+      final s = NetworkStats.from(contacts, now: _now);
+
+      expect(s.growth.importedCount, 2); // legacy tag + structured origin
+      expect(s.growth.manualCount, 1);
+    });
+
     test('bonusXp from claimed quests folds into the level standing', () {
       final contacts = [_contact(id: 'a')];
       final base = NetworkStats.from(contacts, now: _now);

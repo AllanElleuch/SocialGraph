@@ -129,7 +129,7 @@ class ImportedContact {
       email: sanitizeUtf16(primaryEmail),
       notes: sanitizeUtf16(
           notes.where((n) => n.trim().isNotEmpty).join('\n')),
-      tags: const ['Imported'],
+      tags: const [kImportedTag],
       locationMet: '',
       dateMet: null,
       connections: const [],
