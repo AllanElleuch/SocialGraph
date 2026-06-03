@@ -326,7 +326,7 @@ class ContactCard extends StatelessWidget {
     if (c.phone.isNotEmpty) {
       buttons.add(_actionButton(Icons.call, 'Call', () {
         quickActions.call(c.phone);
-        _log(InteractionType.call);
+        _log(InteractionType.call, note: 'Outgoing call');
       }));
       buttons.add(_actionButton(Icons.message_outlined, 'Text', () {
         quickActions.sms(c.phone);
@@ -478,25 +478,45 @@ class ContactCard extends StatelessWidget {
   }
 
   Future<void> _showLogSheet(BuildContext context) async {
-    final type = await showModalBottomSheet<InteractionType>(
+    // iOS can't read the system call log, so calls (incoming included) are
+    // logged here by hand. Calls are split into incoming/outgoing; the choice
+    // is stored as the interaction note, matching the Android auto-logger.
+    final choice = await showModalBottomSheet<(InteractionType, String)>(
       context: context,
       backgroundColor: const Color(0xFF1a1a1a),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final t in InteractionType.values)
-              ListTile(
-                leading: Icon(_iconFor(t), color: const Color(0xFF818cf8)),
-                title: Text(_labelFor(t),
-                    style: const TextStyle(color: Color(0xFFe2e8f0))),
-                onTap: () => Navigator.of(ctx).pop(t),
-              ),
-          ],
-        ),
-      ),
+      builder: (ctx) {
+        ListTile tile(
+          IconData icon,
+          String label,
+          InteractionType type,
+          String note,
+        ) =>
+            ListTile(
+              leading: Icon(icon, color: const Color(0xFF818cf8)),
+              title: Text(label,
+                  style: const TextStyle(color: Color(0xFFe2e8f0))),
+              onTap: () => Navigator.of(ctx).pop((type, note)),
+            );
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              tile(Icons.call_received, 'Incoming call', InteractionType.call,
+                  'Incoming call'),
+              tile(Icons.call_made, 'Outgoing call', InteractionType.call,
+                  'Outgoing call'),
+              tile(Icons.message_outlined, 'Text', InteractionType.text, ''),
+              tile(Icons.email_outlined, 'Email', InteractionType.email, ''),
+              tile(Icons.groups_outlined, 'Meeting', InteractionType.meeting,
+                  ''),
+              tile(Icons.sticky_note_2_outlined, 'Note', InteractionType.note,
+                  ''),
+            ],
+          ),
+        );
+      },
     );
-    if (type != null) _log(type);
+    if (choice != null) _log(choice.$1, note: choice.$2);
   }
 
   IconData _iconFor(InteractionType t) {

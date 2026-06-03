@@ -15,6 +15,7 @@ import 'services/reach_out_service.dart';
 import 'services/auth_service.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/cloud_backup_service.dart';
+import 'services/call_log_sync_service.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_bootstrap.dart';
 import 'widgets/graph_view.dart';
@@ -71,6 +72,7 @@ class _HomePageState extends State<HomePage> {
   final CloudSyncService _cloud = CloudSyncService();
   final CloudBackupService _cloudBackup = CloudBackupService();
   final NotificationService _notifications = NotificationService();
+  final CallLogSyncService _callLog = CallLogSyncService();
   List<Contact> _contacts = [];
 
   bool get _cloudEnabled => firebaseReady;
@@ -99,8 +101,22 @@ class _HomePageState extends State<HomePage> {
         _loading = false;
       });
     }
+    await _syncCallLog();
     await _syncWithCloud();
     await _notifyOverdue();
+  }
+
+  /// Folds calls made/received on the device (Android only) into the contact
+  /// list as `call` interactions. No-op on platforms without a readable call
+  /// log (iOS, macOS, web). Persists locally so the new interactions sync to
+  /// the cloud on the subsequent [_syncWithCloud].
+  Future<void> _syncCallLog() async {
+    if (!_callLog.isSupported) return;
+    final updated = await _callLog.sync(_contacts);
+    if (!identical(updated, _contacts)) {
+      if (mounted) setState(() => _contacts = updated);
+      await _repository.save(_contacts);
+    }
   }
 
   /// Reconciles the local list with the signed-in user's cloud copy
@@ -932,9 +948,13 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Contact Node',
-                    style: TextStyle(color: Color(0xFF9ca3af), fontSize: 10),
+                  Text(
+                    // Live count of nodes currently in the visualization;
+                    // reflects the active search/filter and updates in real time
+                    // because the legend rebuilds with the filtered list.
+                    'Contact Node (${_filteredContacts.length})',
+                    style: const TextStyle(
+                        color: Color(0xFF9ca3af), fontSize: 10),
                   ),
                 ],
               ),

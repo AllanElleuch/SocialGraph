@@ -48,6 +48,10 @@ dependencies:
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
   flutter_local_notifications: ^17.2.4
+  # Android-only: read the device call log to auto-log calls as interactions.
+  # iOS exposes no call-history API, so usage is guarded behind a platform check.
+  call_log: ^5.0.0
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
