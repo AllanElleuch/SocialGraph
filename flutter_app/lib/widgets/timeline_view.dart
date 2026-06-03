@@ -431,8 +431,12 @@ class _TimelineViewState extends State<TimelineView>
       ),
       child: Center(
         child: Text(
+          // Use the first grapheme cluster, not displayName[0]: indexing by
+          // UTF-16 code unit splits a leading emoji/non-BMP character into a
+          // lone surrogate, which crashes text layout ("not well-formed
+          // UTF-16").
           contact.displayName.isNotEmpty
-              ? contact.displayName[0].toUpperCase()
+              ? contact.displayName.characters.first.toUpperCase()
               : '?',
           style: TextStyle(
             color: color,

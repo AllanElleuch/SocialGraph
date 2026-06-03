@@ -6,8 +6,10 @@ import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
 import 'services/import_dedup.dart';
 import 'services/tag_usage.dart';
+import 'services/relatives.dart';
 import 'services/contact_repository.dart';
 import 'services/contact_search.dart';
+import 'services/contact_filter.dart';
 import 'services/interaction_log.dart';
 import 'services/duplicate_detector.dart';
 import 'services/contact_merge.dart';
@@ -35,6 +37,7 @@ import 'widgets/needs_attention_view.dart';
 import 'widgets/sign_in_screen.dart';
 import 'widgets/backup_view.dart';
 import 'widgets/settings_view.dart';
+import 'widgets/filter_sheet.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
 /// offline-first with no auth/cloud features (e.g. config files absent, tests).
@@ -91,6 +94,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   PivotType _pivot = PivotType.mutual;
   Contact? _selectedContact;
   String _searchQuery = '';
+
+  /// Active structured filter (tags / family / quick criteria) applied on top
+  /// of the text search. Surfaced via the Mutuals filter button.
+  ContactFilter _filter = ContactFilter.none;
   bool _loading = true;
   bool _importing = false;
   bool _showForm = false;
@@ -354,9 +361,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       isSignedIn: _signedIn,
       onDeleteAllContacts: () => _deleteAllContacts(),
       onDeleteAccount: _signedIn ? () => _deleteAccount() : null,
+      onLinkRelatives: () => _linkAllRelatives(),
       starColorMode: _starColorMode,
       onStarColorModeChanged: _setStarColorMode,
     );
+  }
+
+  /// Retroactively cross-links every same-last-name group as mutual
+  /// connections in one pass, then persists. Reports how many contacts gained
+  /// connections. The confirmation prompt lives in [SettingsView].
+  Future<void> _linkAllRelatives() async {
+    final before = _contacts;
+    final linked = linkAllRelatives(before, now: DateTime.now());
+    var changed = 0;
+    for (var i = 0; i < linked.length; i++) {
+      if (!identical(linked[i], before[i])) changed++;
+    }
+    if (changed == 0) {
+      if (mounted) _showSnack('No same-last-name contacts to link');
+      return;
+    }
+    setState(() => _contacts = linked);
+    await _persist();
+    if (mounted) {
+      _showSnack('Linked $changed contact${changed == 1 ? '' : 's'} by last name');
+    }
   }
 
   /// Updates the constellation star-color mode and persists the choice so the
@@ -543,6 +572,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         _contacts = [..._contacts, contact];
       }
+      // Auto-link this contact to anyone sharing its last name as mutual
+      // connections (additive; only this surname group is touched).
+      _contacts = linkRelativesOf(contact, _contacts, now: DateTime.now());
     });
     unawaited(_persist());
     _closeForm();
@@ -612,10 +644,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   List<Contact> get _filteredContacts {
-    if (_searchQuery.trim().isEmpty) return _contacts;
-    return _contacts
-        .where((c) => contactMatchesQuery(c, _searchQuery))
-        .toList();
+    final filtered = _filter.isActive
+        ? applyContactFilter(_contacts, _filter, now: DateTime.now())
+        : _contacts;
+    final q = _searchQuery.trim();
+    if (q.isEmpty) return filtered;
+    return filtered.where((c) => contactMatchesQuery(c, q)).toList();
   }
 
   /// Selects the contact [delta] positions away from the current selection in
@@ -712,6 +746,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ContactCard(
             contact: _selectedContact,
             tagCounts: tagUsageCounts(_contacts),
+            relatives: _selectedContact != null
+                ? relativesOf(_selectedContact!, _contacts)
+                : const [],
+            onSelectRelative: (r) => setState(() => _selectedContact = r),
             onClose: () => setState(() => _selectedContact = null),
             onEdit: _selectedContact != null
                 ? () => _openEditForm(_selectedContact!)
@@ -747,6 +785,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
         ],
       ),
+    );
+  }
+
+  /// Filter button (Mutuals only) with a small badge showing the active filter
+  /// count. Opens the [FilterSheet].
+  Widget _buildFilterButton() {
+    final count = _filter.activeCount;
+    return IconButton(
+      tooltip: 'Filter',
+      onPressed: _openFilterSheet,
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Icon(
+            Icons.tune,
+            color: _filter.isActive
+                ? const Color(0xFF818cf8)
+                : const Color(0xFF6b7280),
+            size: 20,
+          ),
+          if (count > 0)
+            Positioned(
+              right: -6,
+              top: -6,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF6366f1),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$count',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openFilterSheet() {
+    return FilterSheet.show(
+      context,
+      filter: _filter,
+      contacts: _contacts,
+      onChanged: (f) => setState(() => _filter = f),
     );
   }
 
@@ -843,6 +935,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                  if (_pivot == PivotType.mutual) _buildFilterButton(),
                   PopupMenuButton<String>(
                     tooltip: 'More',
                     color: const Color(0xFF1a1a1a),

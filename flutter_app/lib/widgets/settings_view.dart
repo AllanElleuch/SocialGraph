@@ -59,6 +59,10 @@ class SettingsView extends StatelessWidget {
   /// user confirms. Null hides the entry (e.g. when signed out).
   final VoidCallback? onDeleteAccount;
 
+  /// Retroactively links all same-last-name contacts as mutual connections
+  /// after the user confirms. Null hides the entry.
+  final VoidCallback? onLinkRelatives;
+
   /// Current constellation star-color mode (drives the Appearance toggle).
   final StarColorMode starColorMode;
 
@@ -76,6 +80,7 @@ class SettingsView extends StatelessWidget {
     this.isSignedIn = false,
     this.onDeleteAllContacts,
     this.onDeleteAccount,
+    this.onLinkRelatives,
     this.starColorMode = StarColorMode.temperature,
     this.onStarColorModeChanged,
   });
@@ -91,6 +96,7 @@ class SettingsView extends StatelessWidget {
     bool isSignedIn = false,
     VoidCallback? onDeleteAllContacts,
     VoidCallback? onDeleteAccount,
+    VoidCallback? onLinkRelatives,
     StarColorMode starColorMode = StarColorMode.temperature,
     ValueChanged<StarColorMode>? onStarColorModeChanged,
   }) {
@@ -105,6 +111,7 @@ class SettingsView extends StatelessWidget {
           isSignedIn: isSignedIn,
           onDeleteAllContacts: onDeleteAllContacts,
           onDeleteAccount: onDeleteAccount,
+          onLinkRelatives: onLinkRelatives,
           starColorMode: starColorMode,
           onStarColorModeChanged: onStarColorModeChanged,
         ),
@@ -153,6 +160,39 @@ class SettingsView extends StatelessWidget {
     // Leave Settings so the app reflects the signed-out state after deletion.
     Navigator.of(context).pop();
     onDeleteAccount?.call();
+  }
+
+  Future<void> _confirmLinkRelatives(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _Palette.surface,
+        title: const Text('Link relatives?',
+            style: TextStyle(color: _Palette.textPrimary, fontSize: 16)),
+        content: const Text(
+          'This connects every contact that shares a last name as mutual '
+          'connections. It only adds links (nothing is removed) and updates '
+          'your saved contacts.',
+          style: TextStyle(color: _Palette.textMuted, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel',
+                style: TextStyle(color: _Palette.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Link', style: TextStyle(color: _Palette.accent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    // Return to the app so the result snackbar is visible.
+    Navigator.of(context).pop();
+    onLinkRelatives?.call();
   }
 
   /// Shows a destructive confirmation dialog and resolves to true only when the
@@ -238,6 +278,15 @@ class SettingsView extends StatelessWidget {
                 subtitle: 'Restore contacts from JSON',
                 onTap: onImportBackup!,
               ),
+          ],
+          if (onLinkRelatives != null) ...[
+            const _SectionHeader('Contacts'),
+            _SettingsTile(
+              icon: Icons.family_restroom_outlined,
+              title: 'Link same-last-name contacts',
+              subtitle: 'Connect everyone who shares a last name',
+              onTap: () => _confirmLinkRelatives(context),
+            ),
           ],
           if (onStarColorModeChanged != null) ...[
             const _SectionHeader('Appearance'),

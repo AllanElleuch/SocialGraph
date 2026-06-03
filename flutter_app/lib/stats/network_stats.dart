@@ -3,6 +3,7 @@ import '../services/reach_out_service.dart';
 import '../services/relationship_strength.dart';
 import 'achievements.dart';
 import 'level.dart';
+import 'level_requirements.dart';
 import 'streaks.dart';
 
 /// One-stop, pure aggregate of every statistic shown on the Stats tab.
@@ -73,12 +74,13 @@ class NetworkStats {
 
     final streak = StreakStats.from(allInteractionDates, now: now);
 
-    final xp = totalXp(
-      contactCount: contacts.length,
-      interactionCount: totalInteractions,
-      connectionCount: totalConnections,
-      reconnectCount: totalReconnects,
-    ) +
+    final xp =
+        totalXp(
+          contactCount: contacts.length,
+          interactionCount: totalInteractions,
+          connectionCount: totalConnections,
+          reconnectCount: totalReconnects,
+        ) +
         bonusXp;
 
     final growth = GrowthStats.from(contacts, now: now);
@@ -95,6 +97,18 @@ class NetworkStats {
         .where((c) => strengthScore(c, now: now) >= 66)
         .length;
     final birthdayCount = contacts.where((c) => c.birthday != null).length;
+
+    // Hard requirements gate each level alongside the XP threshold.
+    final levelRequirements = buildLevelRequirements(
+      LevelMetrics(
+        contacts: contacts.length,
+        interactions: totalInteractions,
+        connections: totalConnections,
+        distinctPlaces: geography.distinctPlaces,
+        reconnects: totalReconnects,
+        strongRelationships: strongCount,
+      ),
+    );
     final photoCount = contacts.where((c) => c.hasPhoto).length;
 
     final achievements = <AchievementStat>[
@@ -169,7 +183,7 @@ class NetworkStats {
     ];
 
     return NetworkStats(
-      level: LevelStats.fromXp(xp),
+      level: LevelStats.gated(xp: xp, requirements: levelRequirements),
       streak: streak,
       health: health,
       growth: growth,

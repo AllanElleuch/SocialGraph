@@ -63,6 +63,58 @@ void main() {
     expect(legalDocsVersion, isNotEmpty);
   });
 
+  group('Link relatives', () {
+    testWidgets('hidden when no callback is provided', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: SettingsView()));
+      await tester.pumpAndSettle();
+      expect(find.text('Link same-last-name contacts'), findsNothing);
+    });
+
+    testWidgets('confirming invokes the callback', (tester) async {
+      var called = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => SettingsView.show(
+                  context,
+                  onLinkRelatives: () => called++,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Link same-last-name contacts'));
+      await tester.pumpAndSettle();
+      expect(find.text('Link relatives?'), findsOneWidget);
+      expect(called, 0);
+
+      await tester.tap(find.text('Link'));
+      await tester.pumpAndSettle();
+      expect(called, 1);
+    });
+
+    testWidgets('cancelling does not invoke the callback', (tester) async {
+      var called = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: SettingsView(onLinkRelatives: () => called++),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Link same-last-name contacts'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(called, 0);
+    });
+  });
+
   group('Danger Zone', () {
     testWidgets('hidden when no destructive callbacks are provided',
         (tester) async {

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../models/contact.dart';
 import '../models/graph_node.dart';
 import '../services/force_simulation.dart';
+import '../services/relatives.dart';
+import '../services/tag_rules.dart';
 import '../painters/graph_painter.dart';
 import '../painters/star_style.dart';
 import '../painters/starfield_painter.dart';
@@ -64,6 +66,11 @@ class _GraphViewState extends State<GraphView>
   Offset? _lastFocalPoint;
 
   bool _graphBuilt = false;
+
+  /// When true, the Mutuals view overlays extra edges between contacts that
+  /// share a last name. Off by default; toggled via the in-view "Family links"
+  /// button. Purely visual — does not change saved data.
+  bool _showFamilyLinks = false;
 
   /// While true, the view keeps the current node set framed and centered as the
   /// layout settles (so a filter snaps to an overview of the cluster). Turns off
@@ -132,8 +139,10 @@ class _GraphViewState extends State<GraphView>
   /// gather in a loose band. Positions are deterministic, so there's no force
   /// relaxation (no simulation).
   void _buildConstellationSky() {
+    // The "Imported" tag is metadata only — never group people by it. A
+    // contact with only that tag has no linking tag and lands in the loose band.
     final items = widget.contacts
-        .map((c) => (id: c.id, tag: c.tags.isNotEmpty ? c.tags.first : ''))
+        .map((c) => (id: c.id, tag: primaryLinkingTag(c.tags)))
         .toList();
     final sky = computeConstellationSky(items);
 
@@ -157,6 +166,16 @@ class _GraphViewState extends State<GraphView>
       if (a == null || b == null) return '';
       return sharedRelationLabel(a.tags, b.tags);
     }).toList();
+
+    // Optional overlay: connect same-last-name contacts across the sky.
+    if (_showFamilyLinks) {
+      final family = sameLastNameLinks(widget.contacts);
+      for (final link in family) {
+        _links.add(
+            GraphLink(sourceId: link.a, targetId: link.b, type: 'connection'));
+      }
+      _edgeLabels = [..._edgeLabels, for (final _ in family) ''];
+    }
 
     _simulation = null;
   }
@@ -235,7 +254,7 @@ class _GraphViewState extends State<GraphView>
         (size.height - topInset - bottomInset).clamp(50.0, double.infinity);
 
     // Fit the whole cluster; clamp so a tiny set isn't zoomed in absurdly.
-    final scale = min(availW / bboxW, availH / bboxH).clamp(0.1, 1.6);
+    final scale = min(availW / bboxW, availH / bboxH).clamp(0.02, 1.6);
     final target = Offset(size.width / 2, topInset + availH / 2);
 
     // M = translate(target) · scale · translate(-center): maps the cluster
@@ -397,6 +416,16 @@ class _GraphViewState extends State<GraphView>
     final minTime = times.isEmpty ? 0.0 : times.reduce(min);
     final maxTime = times.isEmpty ? 0.0 : times.reduce(max);
 
+    // Allow zooming in until a single node more than fills the screen,
+    // regardless of how many nodes there are. A node's core is at most
+    // `kNodeBaseRadius + kStrengthRadiusFactor` content px, so the scale that
+    // makes its diameter ≈ 1.6× the screen's short side is the cap we want.
+    // minScale is low enough to frame a huge sky as an overview.
+    const maxNodeRadius = kNodeBaseRadius + kStrengthRadiusFactor;
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    final maxScale =
+        (shortestSide * 1.6 / (2 * maxNodeRadius)).clamp(8.0, 60.0);
+
     return Stack(
       children: [
         // Fixed deep-space backdrop (not transformed by the viewer).
@@ -412,8 +441,8 @@ class _GraphViewState extends State<GraphView>
           child: InteractiveViewer(
             transformationController: _transformController,
             boundaryMargin: const EdgeInsets.all(double.infinity),
-            minScale: 0.1,
-            maxScale: 8.0,
+            minScale: 0.02,
+            maxScale: maxScale,
             // The fixed constellation sky always pans (drag anywhere, incl.
             // empty space); only the force layout disables pan mid node-drag.
             panEnabled: _simulation == null || _draggedNode == null,
@@ -440,7 +469,67 @@ class _GraphViewState extends State<GraphView>
             ),
           ),
         ),
+        // Mutuals-only overlay toggle: draw edges between same-last-name
+        // contacts. Disabled by default; tap to enable.
+        if (widget.pivot == PivotType.mutual)
+          Positioned(
+            left: 16,
+            bottom: 104,
+            child: _FamilyLinksToggle(
+              enabled: _showFamilyLinks,
+              onTap: _toggleFamilyLinks,
+            ),
+          ),
       ],
+    );
+  }
+
+  void _toggleFamilyLinks() {
+    setState(() {
+      _showFamilyLinks = !_showFamilyLinks;
+      if (widget.pivot == PivotType.mutual) _buildConstellationSky();
+    });
+  }
+}
+
+/// A compact pill toggle for the Mutuals-view same-last-name edge overlay.
+class _FamilyLinksToggle extends StatelessWidget {
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _FamilyLinksToggle({required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: enabled
+              ? const Color(0xFF4f46e5)
+              : const Color(0xFF1a1a1a).withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: const Color(0xFF333333)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.family_restroom,
+                size: 16,
+                color: enabled ? Colors.white : const Color(0xFF9ca3af)),
+            const SizedBox(width: 6),
+            Text(
+              'Family links',
+              style: TextStyle(
+                color: enabled ? Colors.white : const Color(0xFF9ca3af),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

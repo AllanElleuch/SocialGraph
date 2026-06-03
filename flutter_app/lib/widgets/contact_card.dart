@@ -31,6 +31,13 @@ class ContactCard extends StatelessWidget {
   /// its network-wide usage count. Empty hides the counts.
   final Map<String, int> tagCounts;
 
+  /// Other contacts that share this contact's last name. Shown as a tappable
+  /// "Same last name" list; empty hides the section.
+  final List<Contact> relatives;
+
+  /// Called when a relative row is tapped (parent selects that contact).
+  final void Function(Contact relative)? onSelectRelative;
+
   ContactCard({
     super.key,
     required this.contact,
@@ -40,6 +47,8 @@ class ContactCard extends StatelessWidget {
     this.onNext,
     this.onPrevious,
     this.tagCounts = const {},
+    this.relatives = const [],
+    this.onSelectRelative,
     QuickActionsService? quickActions,
   }) : quickActions = quickActions ?? QuickActionsService();
 
@@ -291,6 +300,15 @@ class ContactCard extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14),
             ),
             const SizedBox(height: 24),
+
+            // Same last name — tap a relative to jump to them.
+            if (relatives.isNotEmpty) ...[
+              _sectionHeader(
+                  Icons.family_restroom_outlined, 'Same last name'),
+              const SizedBox(height: 8),
+              ...relatives.map(_relativeRow),
+              const SizedBox(height: 24),
+            ],
 
             // Interaction log
             Row(
@@ -630,6 +648,39 @@ class ContactCard extends StatelessWidget {
       default:
         return Icons.link;
     }
+  }
+
+  /// A tappable row for a same-last-name relative; selects them when tapped.
+  Widget _relativeRow(Contact relative) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => onSelectRelative?.call(relative),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            if (relative.hasPhoto)
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: const Color(0xFF333333),
+                backgroundImage: MemoryImage(relative.photoThumbnail!),
+              )
+            else
+              const Icon(Icons.person_outline,
+                  size: 18, color: Color(0xFF818cf8)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                relative.displayName,
+                style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 14),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 16, color: Color(0xFF4b5563)),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _infoRow(IconData icon, Widget content) {

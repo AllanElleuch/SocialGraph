@@ -26,9 +26,7 @@ Contact _contact({
 }) {
   final last = interactions.isEmpty
       ? null
-      : interactions
-          .map((e) => e.date)
-          .reduce((a, b) => a.isAfter(b) ? a : b);
+      : interactions.map((e) => e.date).reduce((a, b) => a.isAfter(b) ? a : b);
   return Contact(
     id: id,
     firstName: firstName,
@@ -46,9 +44,11 @@ Contact _contact({
   );
 }
 
-InteractionEvent _event(String id, DateTime date,
-        [InteractionType type = InteractionType.note]) =>
-    InteractionEvent(id: id, date: date, type: type);
+InteractionEvent _event(
+  String id,
+  DateTime date, [
+  InteractionType type = InteractionType.note,
+]) => InteractionEvent(id: id, date: date, type: type);
 
 void main() {
   group('level / XP', () {
@@ -84,12 +84,24 @@ void main() {
       expect(l.rankTitle, 'Acquaintance');
     });
 
-    test('rank titles climb with level', () {
-      expect(rankTitleForLevel(1), 'Acquaintance');
-      expect(rankTitleForLevel(3), 'Networker');
+    test('rank titles follow the named 10-level ladder', () {
+      expect(rankTitleForLevel(1), 'Newcomer');
+      expect(rankTitleForLevel(2), 'Acquaintance');
+      expect(rankTitleForLevel(3), 'Friendly Face');
       expect(rankTitleForLevel(5), 'Connector');
-      expect(rankTitleForLevel(7), 'Super Connector');
+      expect(rankTitleForLevel(7), 'Networking Pro');
       expect(rankTitleForLevel(10), 'Networking Legend');
+      expect(kLevelTitles, hasLength(10));
+    });
+
+    test('beyond level 10, prestige tiers append a roman numeral', () {
+      expect(rankTitleForLevel(11), 'Networking Legend II');
+      expect(rankTitleForLevel(12), 'Networking Legend III');
+      expect(LevelStats.fromXp(0).prestige, 0);
+      // L11 starts at xpForLevel(11) = 50*10*11 = 5500.
+      expect(LevelStats.fromXp(5500).level, 11);
+      expect(LevelStats.fromXp(5500).prestige, 1);
+      expect(LevelStats.fromXp(5500).rankTitle, 'Networking Legend II');
     });
   });
 
@@ -160,8 +172,11 @@ void main() {
           connections: const ['b'],
           interactions: [
             _event('1', _now, InteractionType.call),
-            _event('2', _now.subtract(const Duration(days: 7)),
-                InteractionType.text),
+            _event(
+              '2',
+              _now.subtract(const Duration(days: 7)),
+              InteractionType.text,
+            ),
           ],
         ),
         _contact(
@@ -191,8 +206,9 @@ void main() {
       expect(s.geography.topPlaces.first.count, 2);
 
       // First-contact badge unlocked once any contact exists.
-      final first =
-          s.achievements.firstWhere((a) => a.id == AchievementId.firstContact);
+      final first = s.achievements.firstWhere(
+        (a) => a.id == AchievementId.firstContact,
+      );
       expect(first.unlocked, isTrue);
       expect(s.streak.currentWeeks, greaterThanOrEqualTo(1));
     });
@@ -204,7 +220,10 @@ void main() {
       final contacts = [
         _contact(id: 'legacy', tags: const ['Imported']),
         _contact(id: 'manual'),
-        _contact(id: 'new', origin: ContactOrigin.imported(platform: 'iOS')),
+        _contact(
+          id: 'new',
+          origin: ContactOrigin.imported(platform: 'iOS'),
+        ),
       ];
 
       final s = NetworkStats.from(contacts, now: _now);
@@ -214,7 +233,23 @@ void main() {
     });
 
     test('bonusXp from claimed quests folds into the level standing', () {
-      final contacts = [_contact(id: 'a')];
+      // Levels are gated by hard requirements as well as XP, so this fixture
+      // satisfies the L2/L3 requirements (3 contacts, 5 interactions) — leaving
+      // XP as the binding constraint so bonus XP can actually raise the level.
+      final contacts = [
+        _contact(
+          id: 'a',
+          interactions: [
+            _event('1', _now),
+            _event('2', _now),
+            _event('3', _now),
+            _event('4', _now),
+            _event('5', _now),
+          ],
+        ),
+        _contact(id: 'b'),
+        _contact(id: 'c'),
+      ];
       final base = NetworkStats.from(contacts, now: _now);
       final boosted = NetworkStats.from(contacts, now: _now, bonusXp: 300);
 
@@ -222,35 +257,37 @@ void main() {
       expect(boosted.level.level, greaterThan(base.level.level));
     });
 
-    test('picture-perfect badge unlocks only when every contact has a photo',
-        () {
-      final photo = Uint8List.fromList([1, 2, 3]);
+    test(
+      'picture-perfect badge unlocks only when every contact has a photo',
+      () {
+        final photo = Uint8List.fromList([1, 2, 3]);
 
-      AchievementStat badgeOf(List<Contact> contacts) =>
-          NetworkStats.from(contacts, now: _now)
-              .achievements
-              .firstWhere((a) => a.id == AchievementId.picturePerfect);
+        AchievementStat badgeOf(List<Contact> contacts) => NetworkStats.from(
+          contacts,
+          now: _now,
+        ).achievements.firstWhere((a) => a.id == AchievementId.picturePerfect);
 
-      // Empty network: locked, not a trivial 0/0 unlock.
-      expect(badgeOf(const []).unlocked, isFalse);
+        // Empty network: locked, not a trivial 0/0 unlock.
+        expect(badgeOf(const []).unlocked, isFalse);
 
-      // Some contacts missing a photo: locked, progress reflects the share.
-      final mixed = badgeOf([
-        _contact(id: 'a', photoThumbnail: photo),
-        _contact(id: 'b'),
-      ]);
-      expect(mixed.unlocked, isFalse);
-      expect(mixed.current, 1);
-      expect(mixed.target, 2);
-      expect(mixed.progressLabel, '1 / 2');
+        // Some contacts missing a photo: locked, progress reflects the share.
+        final mixed = badgeOf([
+          _contact(id: 'a', photoThumbnail: photo),
+          _contact(id: 'b'),
+        ]);
+        expect(mixed.unlocked, isFalse);
+        expect(mixed.current, 1);
+        expect(mixed.target, 2);
+        expect(mixed.progressLabel, '1 / 2');
 
-      // Every contact has a photo: unlocked.
-      final all = badgeOf([
-        _contact(id: 'a', photoThumbnail: photo),
-        _contact(id: 'b', photoThumbnail: photo),
-      ]);
-      expect(all.unlocked, isTrue);
-    });
+        // Every contact has a photo: unlocked.
+        final all = badgeOf([
+          _contact(id: 'a', photoThumbnail: photo),
+          _contact(id: 'b', photoThumbnail: photo),
+        ]);
+        expect(all.unlocked, isTrue);
+      },
+    );
 
     test('health reflects overdue cadence and surfaces most neglected', () {
       final contacts = [
@@ -265,9 +302,7 @@ void main() {
           id: 'stale',
           firstName: 'Stale',
           reminderCadenceDays: 30,
-          interactions: [
-            _event('2', _now.subtract(const Duration(days: 200))),
-          ],
+          interactions: [_event('2', _now.subtract(const Duration(days: 200)))],
         ),
       ];
 

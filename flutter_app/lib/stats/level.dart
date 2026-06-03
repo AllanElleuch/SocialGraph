@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'level_requirements.dart';
+
 /// Networker level / XP progression (Stats tab gamification).
 ///
 /// Pure, deterministic: levels are derived entirely from the player's total XP,
@@ -74,13 +76,78 @@ int levelForXp(int xp) {
   return level;
 }
 
+/// The named progression ladder, level 1..10 (index 0 == level 1). Level 10 is
+/// the apex; beyond it, players earn prestige tiers (see [rankTitleForLevel]).
+const List<String> kLevelTitles = [
+  'Newcomer',
+  'Acquaintance',
+  'Friendly Face',
+  'Networker',
+  'Connector',
+  'Super Connector',
+  'Networking Pro',
+  'Relationship Master',
+  'Social Architect',
+  'Networking Legend',
+];
+
+/// Highest named level; XP past this earns prestige tiers instead of new names.
+const int kMaxNamedLevel = 10;
+
 /// A flavourful rank title for a given [level].
+///
+/// Levels 1..10 map to [kLevelTitles]. Past 10, the title stays "Networking
+/// Legend" with a prestige roman numeral appended — "Networking Legend II" at
+/// level 11, "III" at 12, and so on — so there is always a next goal.
 String rankTitleForLevel(int level) {
-  if (level >= 10) return 'Networking Legend';
-  if (level >= 7) return 'Super Connector';
-  if (level >= 5) return 'Connector';
-  if (level >= 3) return 'Networker';
-  return 'Acquaintance';
+  if (level <= 1) return kLevelTitles.first;
+  if (level <= kMaxNamedLevel) return kLevelTitles[level - 1];
+  return '${kLevelTitles.last} ${_roman(level - kMaxNamedLevel + 1)}';
+}
+
+const List<(int, String)> _romanUnits = [
+  (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'), //
+  (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'), //
+  (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+];
+
+/// Compact roman numeral for prestige tiers (e.g. 2 -> "II", 14 -> "XIV").
+String _roman(int n) {
+  if (n <= 0) return '';
+  final sb = StringBuffer();
+  var value = n;
+  for (final (amount, symbol) in _romanUnits) {
+    while (value >= amount) {
+      sb.write(symbol);
+      value -= amount;
+    }
+  }
+  return sb.toString();
+}
+
+/// The level actually reached when each rung is gated by **both** its XP
+/// threshold and its hard [LevelRequirement].
+///
+/// Progression is sequential and contiguous: you advance to level L only when,
+/// for every rung up to L, the XP threshold is reached *and* that rung's
+/// requirement is met. The first rung that fails either condition caps you.
+/// Past the apex ([kMaxNamedLevel]) there are no hard requirements, so prestige
+/// tiers advance on XP alone.
+int gatedLevel(int xp, Map<int, LevelRequirement> requirements) {
+  var level = 1;
+  for (var l = 2; l <= kMaxNamedLevel; l++) {
+    final xpOk = xp >= xpForLevel(l);
+    final req = requirements[l];
+    final reqOk = req == null || req.met;
+    if (xpOk && reqOk) {
+      level = l;
+    } else {
+      return level; // blocked here; nothing above can unlock
+    }
+  }
+  // At the apex: prestige tiers are XP-only.
+  final byXp = levelForXp(xp);
+  return byXp > level ? byXp : level;
 }
 
 /// Immutable snapshot of the player's level/XP standing.
@@ -88,11 +155,37 @@ class LevelStats {
   final int xp;
   final int level;
 
-  const LevelStats({required this.xp, required this.level});
+  /// Hard requirements by level (2..10), when this standing was computed with
+  /// gating. Null for XP-only standings (e.g. [LevelStats.fromXp]).
+  final Map<int, LevelRequirement>? requirements;
 
-  /// Builds the standing from a raw [xp] total.
+  const LevelStats({required this.xp, required this.level, this.requirements});
+
+  /// Builds a pure XP standing (no hard-requirement gating).
   factory LevelStats.fromXp(int xp) =>
       LevelStats(xp: xp, level: levelForXp(xp));
+
+  /// Builds a gated standing: the level is capped by both XP and the hard
+  /// [requirements] (see [gatedLevel]).
+  factory LevelStats.gated({
+    required int xp,
+    required Map<int, LevelRequirement> requirements,
+  }) => LevelStats(
+    xp: xp,
+    level: gatedLevel(xp, requirements),
+    requirements: requirements,
+  );
+
+  /// The hard requirement guarding the *next* level, if any (null at the apex
+  /// or for ungated standings).
+  LevelRequirement? get nextRequirement => requirements?[level + 1];
+
+  /// Whether the next level's XP is already earned but its hard requirement is
+  /// still unmet — i.e. a requirement (not XP) is what's holding you back.
+  bool get blockedByRequirement {
+    final req = nextRequirement;
+    return req != null && !req.met && xp >= xpAtNextLevel;
+  }
 
   /// XP threshold at the start of the current level.
   int get xpAtLevelStart => xpForLevel(level);
@@ -106,8 +199,12 @@ class LevelStats {
   /// Total XP span of the current level.
   int get xpSpanThisLevel => xpAtNextLevel - xpAtLevelStart;
 
-  /// XP still needed to reach the next level.
-  int get xpToNextLevel => xpAtNextLevel - xp;
+  /// XP still needed to reach the next level (never negative — when gated by a
+  /// requirement the XP can already be past the band).
+  int get xpToNextLevel {
+    final gap = xpAtNextLevel - xp;
+    return gap < 0 ? 0 : gap;
+  }
 
   /// Progress through the current level, 0..1.
   double get progress {
@@ -116,14 +213,28 @@ class LevelStats {
     return (xpIntoLevel / span).clamp(0.0, 1.0);
   }
 
-  /// Flavour rank title, e.g. "Connector".
+  /// Flavour rank title, e.g. "Connector" or "Networking Legend II".
   String get rankTitle => rankTitleForLevel(level);
+
+  /// Prestige tier earned past the apex: 0 at level ≤ 10, 1 at level 11
+  /// ("Legend II"), 2 at level 12, and so on. Drives the prestige banner.
+  int get prestige => level <= kMaxNamedLevel ? 0 : level - kMaxNamedLevel;
+
+  /// Whether the player has reached the apex named level (10+).
+  bool get isLegend => level >= kMaxNamedLevel;
 
   /// "Level 4" headline.
   String get levelLabel => 'Level $level';
 
-  /// "120 XP to Level 5" hint under the progress bar.
-  String get nextLevelLabel => '$xpToNextLevel XP to Level ${level + 1}';
+  /// "120 XP to Level 5" hint under the progress bar — or, when XP is already
+  /// earned and a hard requirement is the blocker, surfaces that instead.
+  String get nextLevelLabel {
+    final req = nextRequirement;
+    if (req != null && !req.met && xp >= xpAtNextLevel) {
+      return 'Need: ${req.label} (${req.progressLabel})';
+    }
+    return '$xpToNextLevel XP to Level ${level + 1}';
+  }
 
   /// "340 XP" total label.
   String get xpLabel => '$xp XP';

@@ -7,6 +7,7 @@ import '../stats/achievements.dart';
 import '../stats/network_stats.dart';
 import '../stats/quests.dart';
 import '../stats/streaks.dart';
+import 'level_roadmap.dart';
 
 /// Dark-theme palette for the Stats surface, matching the rest of the app.
 class _P {
@@ -309,103 +310,121 @@ class _HeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = stats.level;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF312E81), Color(0xFF1E1B4B)],
+    return GestureDetector(
+      onTap: () => LevelRoadmap.show(context, level: level),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF312E81), Color(0xFF1E1B4B)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _P.indigo.withValues(alpha: 0.4)),
         ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _P.indigo.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 78,
-            height: 78,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CustomPaint(
-                  size: const Size(78, 78),
-                  painter: RingPainter(
-                    progress: level.progress,
-                    color: _P.amber,
-                    trackColor: Colors.white.withValues(alpha: 0.15),
-                    strokeWidth: 7,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 78,
+              height: 78,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: const Size(78, 78),
+                    painter: RingPainter(
+                      progress: level.progress,
+                      color: _P.amber,
+                      trackColor: Colors.white.withValues(alpha: 0.15),
+                      strokeWidth: 7,
+                    ),
                   ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'LVL',
-                      style: TextStyle(
-                        color: _P.muted,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1,
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'LVL',
+                        style: TextStyle(
+                          color: _P.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
                       ),
-                    ),
-                    Text(
-                      '${level.level}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        height: 1,
+                      Text(
+                        '${level.level}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  level.rankTitle,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                    ],
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  level.xpLabel,
-                  style: const TextStyle(color: _P.accent, fontSize: 13),
-                ),
-                const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(100),
-                  child: LinearProgressIndicator(
-                    value: level.progress,
-                    minHeight: 6,
-                    backgroundColor: Colors.white.withValues(alpha: 0.12),
-                    valueColor: const AlwaysStoppedAnimation<Color>(_P.amber),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      level.nextLevelLabel,
-                      style: const TextStyle(color: _P.muted, fontSize: 11),
-                    ),
-                    _StreakBadge(weeks: stats.streak.currentWeeks),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    level.rankTitle,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    level.xpLabel,
+                    style: const TextStyle(color: _P.accent, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(100),
+                    child: LinearProgressIndicator(
+                      value: level.progress,
+                      minHeight: 6,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      valueColor: const AlwaysStoppedAnimation<Color>(_P.amber),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        level.nextLevelLabel,
+                        style: const TextStyle(color: _P.muted, fontSize: 11),
+                      ),
+                      _StreakBadge(weeks: stats.streak.currentWeeks),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: const [
+                      Text(
+                        'See your journey',
+                        style: TextStyle(
+                          color: _P.accent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(width: 2),
+                      Icon(Icons.chevron_right, color: _P.accent, size: 14),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -728,17 +747,13 @@ class _QuestRow extends StatelessWidget {
     final accent = claimed
         ? _P.muted
         : ready
-            ? _P.green
-            : _P.accent;
+        ? _P.green
+        : _P.accent;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          claimed ? Icons.check_circle : meta.icon,
-          size: 22,
-          color: accent,
-        ),
+        Icon(claimed ? Icons.check_circle : meta.icon, size: 22, color: accent),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -753,8 +768,7 @@ class _QuestRow extends StatelessWidget {
                         color: claimed ? _P.muted : _P.text,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        decoration:
-                            claimed ? TextDecoration.lineThrough : null,
+                        decoration: claimed ? TextDecoration.lineThrough : null,
                       ),
                     ),
                   ),
@@ -796,8 +810,9 @@ class _QuestRow extends StatelessWidget {
                           value: quest.progress,
                           minHeight: 7,
                           backgroundColor: _P.faint,
-                          valueColor:
-                              const AlwaysStoppedAnimation<Color>(_P.accent),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            _P.accent,
+                          ),
                         ),
                       ),
                     ),
@@ -836,11 +851,8 @@ class _ClaimButton extends StatelessWidget {
           backgroundColor: _P.green,
           foregroundColor: const Color(0xFF06281D),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          textStyle:
-              const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );

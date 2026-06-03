@@ -219,6 +219,23 @@ void main() {
       expect(find.byType(CircleAvatar), findsNothing);
       expect(find.text('C'), findsOneWidget);
     });
+
+    testWidgets('an emoji-leading name renders without a UTF-16 crash',
+        (tester) async {
+      // Regression: displayName[0] split the leading emoji's surrogate pair
+      // into a lone surrogate and crashed text layout. The initial must be the
+      // whole grapheme cluster.
+      final c = makeContact(
+        id: 'c',
+        firstName: '🎉Party',
+        dateMet: kNow.subtract(const Duration(days: 20)),
+      );
+
+      await pumpView(tester, contacts: [c]);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('🎉'), findsOneWidget);
+    });
   });
 
   group('TimelineView tap', () {
