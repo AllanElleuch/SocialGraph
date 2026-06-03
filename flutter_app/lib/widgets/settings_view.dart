@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
+import 'package:flutter/services.dart'
+    show rootBundle, Clipboard, ClipboardData;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -14,8 +15,10 @@ const String legalDocsVersion = '1.0.0';
 const String legalDocsEffective = '2 June 2026';
 
 /// Public, hosted copies of the legal documents (Cloudflare Pages).
-const String privacyPolicyUrl = 'https://codelio-legal.pages.dev/privacy-policy.html';
-const String termsOfUseUrl = 'https://codelio-legal.pages.dev/terms-of-use.html';
+const String privacyPolicyUrl =
+    'https://codelio-legal.pages.dev/privacy-policy.html';
+const String termsOfUseUrl =
+    'https://codelio-legal.pages.dev/terms-of-use.html';
 
 /// Support / privacy contact address.
 const String supportEmail = 'contact@codelio.fr';
@@ -63,6 +66,10 @@ class SettingsView extends StatelessWidget {
   /// after the user confirms. Null hides the entry.
   final VoidCallback? onLinkRelatives;
 
+  /// Writes the app's contacts into the device address book after the user
+  /// confirms. Null hides the entry.
+  final VoidCallback? onExportToDevice;
+
   /// Current constellation star-color mode (drives the Appearance toggle).
   final StarColorMode starColorMode;
 
@@ -81,6 +88,7 @@ class SettingsView extends StatelessWidget {
     this.onDeleteAllContacts,
     this.onDeleteAccount,
     this.onLinkRelatives,
+    this.onExportToDevice,
     this.starColorMode = StarColorMode.temperature,
     this.onStarColorModeChanged,
   });
@@ -97,6 +105,7 @@ class SettingsView extends StatelessWidget {
     VoidCallback? onDeleteAllContacts,
     VoidCallback? onDeleteAccount,
     VoidCallback? onLinkRelatives,
+    VoidCallback? onExportToDevice,
     StarColorMode starColorMode = StarColorMode.temperature,
     ValueChanged<StarColorMode>? onStarColorModeChanged,
   }) {
@@ -112,6 +121,7 @@ class SettingsView extends StatelessWidget {
           onDeleteAllContacts: onDeleteAllContacts,
           onDeleteAccount: onDeleteAccount,
           onLinkRelatives: onLinkRelatives,
+          onExportToDevice: onExportToDevice,
           starColorMode: starColorMode,
           onStarColorModeChanged: onStarColorModeChanged,
         ),
@@ -120,7 +130,9 @@ class SettingsView extends StatelessWidget {
   }
 
   bool get _hasBackups =>
-      onCloudBackups != null || onExportBackup != null || onImportBackup != null;
+      onCloudBackups != null ||
+      onExportBackup != null ||
+      onImportBackup != null;
 
   bool get _hasAccount => onSignIn != null || onSignOut != null;
 
@@ -133,10 +145,10 @@ class SettingsView extends StatelessWidget {
       title: 'Delete all contacts?',
       message: isSignedIn
           ? 'This removes every contact from this device only. Your cloud sync '
-              'copy and cloud backups are kept, so contacts may return on the '
-              'next cloud sync, and you can always restore from a backup.'
+                'copy and cloud backups are kept, so contacts may return on the '
+                'next cloud sync, and you can always restore from a backup.'
           : 'This removes every contact from this device. Your cloud backups '
-              'are kept, so you can restore from one later.',
+                'are kept, so you can restore from one later.',
       confirmLabel: 'Delete all',
     );
     if (confirmed == true) onDeleteAllContacts?.call();
@@ -149,7 +161,8 @@ class SettingsView extends StatelessWidget {
       context: context,
       builder: (_) => const _TypedConfirmDialog(
         title: 'Delete account?',
-        message: 'This permanently deletes your account and everything stored '
+        message:
+            'This permanently deletes your account and everything stored '
             'in the cloud, including backups. Contacts on this device are '
             'removed too. This cannot be undone.',
         confirmWord: 'DELETE',
@@ -168,8 +181,10 @@ class SettingsView extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _Palette.surface,
-        title: const Text('Link relatives?',
-            style: TextStyle(color: _Palette.textPrimary, fontSize: 16)),
+        title: const Text(
+          'Link relatives?',
+          style: TextStyle(color: _Palette.textPrimary, fontSize: 16),
+        ),
         content: const Text(
           'This connects every contact that shares a last name as mutual '
           'connections. It only adds links (nothing is removed) and updates '
@@ -179,8 +194,10 @@ class SettingsView extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel',
-                style: TextStyle(color: _Palette.textMuted)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: _Palette.textMuted),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -196,6 +213,46 @@ class SettingsView extends StatelessWidget {
     onLinkRelatives?.call();
   }
 
+  Future<void> _confirmExportToDevice(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _Palette.surface,
+        title: const Text(
+          'Export to phone contacts?',
+          style: TextStyle(color: _Palette.textPrimary, fontSize: 16),
+        ),
+        content: const Text(
+          'This writes your contacts into your phone\'s address book. Contacts '
+          'already on your phone (matched by name, phone, or email) are '
+          'skipped, so it won\'t create duplicates.',
+          style: TextStyle(color: _Palette.textMuted, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: _Palette.textMuted),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Export',
+              style: TextStyle(color: _Palette.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    // Return to the app so the progress UI / result snackbar is visible.
+    Navigator.of(context).pop();
+    onExportToDevice?.call();
+  }
+
   /// Shows a destructive confirmation dialog and resolves to true only when the
   /// user taps the confirm action.
   Future<bool?> _confirmDestructive(
@@ -208,20 +265,28 @@ class SettingsView extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _Palette.surface,
-        title: Text(title,
-            style: const TextStyle(color: _Palette.textPrimary, fontSize: 16)),
-        content: Text(message,
-            style: const TextStyle(color: _Palette.textMuted, fontSize: 13)),
+        title: Text(
+          title,
+          style: const TextStyle(color: _Palette.textPrimary, fontSize: 16),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(color: _Palette.textMuted, fontSize: 13),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel',
-                style: TextStyle(color: _Palette.textMuted)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: _Palette.textMuted),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(confirmLabel,
-                style: const TextStyle(color: _Palette.danger)),
+            child: Text(
+              confirmLabel,
+              style: const TextStyle(color: _Palette.danger),
+            ),
           ),
         ],
       ),
@@ -280,14 +345,22 @@ class SettingsView extends StatelessWidget {
                 onTap: onImportBackup!,
               ),
           ],
-          if (onLinkRelatives != null) ...[
+          if (onLinkRelatives != null || onExportToDevice != null) ...[
             const _SectionHeader('Contacts'),
-            _SettingsTile(
-              icon: Icons.family_restroom_outlined,
-              title: 'Link same-last-name contacts',
-              subtitle: 'Connect everyone who shares a last name',
-              onTap: () => _confirmLinkRelatives(context),
-            ),
+            if (onLinkRelatives != null)
+              _SettingsTile(
+                icon: Icons.family_restroom_outlined,
+                title: 'Link same-last-name contacts',
+                subtitle: 'Connect everyone who shares a last name',
+                onTap: () => _confirmLinkRelatives(context),
+              ),
+            if (onExportToDevice != null)
+              _SettingsTile(
+                icon: Icons.contact_phone_outlined,
+                title: 'Export to phone contacts',
+                subtitle: 'Add your contacts to the device address book',
+                onTap: () => _confirmExportToDevice(context),
+              ),
           ],
           if (onStarColorModeChanged != null) ...[
             const _SectionHeader('Appearance'),
@@ -522,14 +595,22 @@ class _SettingsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final titleColor = destructive ? _Palette.danger : _Palette.textPrimary;
     return ListTile(
-      leading: Icon(icon, color: destructive ? _Palette.danger : _Palette.accent),
+      leading: Icon(
+        icon,
+        color: destructive ? _Palette.danger : _Palette.accent,
+      ),
       title: Text(title, style: TextStyle(color: titleColor)),
       subtitle: subtitle == null
           ? null
-          : Text(subtitle!,
-              style: const TextStyle(color: _Palette.textMuted, fontSize: 12)),
-      trailing:
-          const Icon(Icons.chevron_right, color: _Palette.textMuted, size: 20),
+          : Text(
+              subtitle!,
+              style: const TextStyle(color: _Palette.textMuted, fontSize: 12),
+            ),
+      trailing: const Icon(
+        Icons.chevron_right,
+        color: _Palette.textMuted,
+        size: 20,
+      ),
       onTap: onTap,
     );
   }
@@ -578,14 +659,18 @@ class _TypedConfirmDialogState extends State<_TypedConfirmDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: _Palette.surface,
-      title: Text(widget.title,
-          style: const TextStyle(color: _Palette.textPrimary, fontSize: 16)),
+      title: Text(
+        widget.title,
+        style: const TextStyle(color: _Palette.textPrimary, fontSize: 16),
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.message,
-              style: const TextStyle(color: _Palette.textMuted, fontSize: 13)),
+          Text(
+            widget.message,
+            style: const TextStyle(color: _Palette.textMuted, fontSize: 13),
+          ),
           const SizedBox(height: 16),
           Text(
             'Type ${widget.confirmWord} to confirm',
@@ -615,8 +700,10 @@ class _TypedConfirmDialogState extends State<_TypedConfirmDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child:
-              const Text('Cancel', style: TextStyle(color: _Palette.textMuted)),
+          child: const Text(
+            'Cancel',
+            style: TextStyle(color: _Palette.textMuted),
+          ),
         ),
         TextButton(
           onPressed: _matches ? () => Navigator.of(context).pop(true) : null,
@@ -723,8 +810,10 @@ class LegalDocView extends StatelessWidget {
           }
           if (snapshot.hasError || !snapshot.hasData) {
             return const Center(
-              child: Text('Could not load document.',
-                  style: TextStyle(color: _Palette.textMuted)),
+              child: Text(
+                'Could not load document.',
+                style: TextStyle(color: _Palette.textMuted),
+              ),
             );
           }
           return SingleChildScrollView(
@@ -818,7 +907,10 @@ Widget _paragraph(String text) {
     child: Text.rich(
       _inlineSpans(text),
       style: const TextStyle(
-          color: _Palette.textPrimary, fontSize: 14, height: 1.5),
+        color: _Palette.textPrimary,
+        fontSize: 14,
+        height: 1.5,
+      ),
     ),
   );
 }
@@ -829,13 +921,18 @@ Widget _bullet(String text) {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('•  ',
-            style: TextStyle(color: _Palette.accent, fontSize: 14)),
+        const Text(
+          '•  ',
+          style: TextStyle(color: _Palette.accent, fontSize: 14),
+        ),
         Expanded(
           child: Text.rich(
             _inlineSpans(text),
             style: const TextStyle(
-                color: _Palette.textPrimary, fontSize: 14, height: 1.5),
+              color: _Palette.textPrimary,
+              fontSize: 14,
+              height: 1.5,
+            ),
           ),
         ),
       ],
@@ -852,10 +949,12 @@ TextSpan _inlineSpans(String text) {
     if (match.start > index) {
       spans.add(TextSpan(text: text.substring(index, match.start)));
     }
-    spans.add(TextSpan(
-      text: match.group(1),
-      style: const TextStyle(fontWeight: FontWeight.bold),
-    ));
+    spans.add(
+      TextSpan(
+        text: match.group(1),
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+    );
     index = match.end;
   }
   if (index < text.length) {

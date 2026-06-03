@@ -38,6 +38,51 @@ void main() {
     expect(sky.groupIndex['a'], orphans.index);
   });
 
+  test('orphans spread as an even disc, not a square grid', () {
+    final loose = [for (var i = 0; i < 800; i++) (id: 'o$i', tag: '')];
+    final sky = computeConstellationSky(loose);
+
+    final orphans = sky.groups.firstWhere((g) => g.tag == 'Orphans');
+    final center = orphans.center;
+    final dists = sky.positions.values
+        .map((p) => (p - center).distance)
+        .toList()
+      ..sort();
+
+    // A disc fills uniformly: the farthest node is well within ~sqrt(2)× the
+    // radius that would bound a square of the same node count + spacing. We just
+    // assert it's round-ish — the max radius isn't far larger than the median.
+    final median = dists[dists.length ~/ 2];
+    final maxR = dists.last;
+    // For a uniform disc, median radius ≈ maxR / sqrt(2) ≈ 0.71·maxR. A square
+    // grid would push many points toward the far corners (median ≪ max).
+    expect(median, greaterThan(maxR * 0.6));
+    // And every orphan is placed.
+    expect(sky.positions.length, 800);
+  });
+
+  test('orphan label sits below the lowest node (radius clears every node)',
+      () {
+    final loose = [for (var i = 0; i < 800; i++) (id: 'o$i', tag: '')];
+    final sky = computeConstellationSky(loose);
+    final orphans = sky.groups.firstWhere((g) => g.tag == 'Orphans');
+
+    // The label baseline is center.dy + radius (+ a screen gap in the painter).
+    // That must be at or below every orphan node's y, so it never lands inside.
+    final lowestNodeY =
+        sky.positions.values.map((p) => p.dy).reduce((a, b) => a > b ? a : b);
+    final labelY = orphans.center.dy + orphans.radius;
+    expect(labelY, greaterThanOrEqualTo(lowestNodeY));
+  });
+
+  test('named-group radius bounds its nodes', () {
+    final sky = computeConstellationSky(items({'Big': 200}));
+    final g = sky.groups.firstWhere((g) => g.tag == 'Big');
+    for (final p in sky.positions.values) {
+      expect((p - g.center).distance, lessThanOrEqualTo(g.radius + 0.001));
+    }
+  });
+
   test('is deterministic — same input yields identical positions', () {
     final input = items({'Work': 5, 'Gym': 2, 'School': 9});
     final a = computeConstellationSky(input);

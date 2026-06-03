@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, ValueListenable;
 import 'package:flutter/material.dart';
 import 'feature_flags.dart';
 import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
+import 'services/contacts_export_service.dart';
 import 'services/import_dedup.dart';
 import 'services/tag_usage.dart';
 import 'services/tag_membership.dart';
@@ -81,6 +82,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final ContactsImportService _importService = ContactsImportService();
+  final ContactsExportService _exportService = ContactsExportService();
   final ContactRepository _repository = ContactRepository();
   final AuthService _auth = AuthService();
   final CloudSyncService _cloud = CloudSyncService();
@@ -163,14 +165,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(confirmLabel(pending)),
-        action: SnackBarAction(
-          label: 'Remove',
-          onPressed: () =>
-              _removeInteraction(pending.contactId, pending.eventId),
+      ..showSnackBar(
+        SnackBar(
+          content: Text(confirmLabel(pending)),
+          action: SnackBarAction(
+            label: 'Remove',
+            onPressed: () =>
+                _removeInteraction(pending.contactId, pending.eventId),
+          ),
         ),
-      ));
+      );
   }
 
   /// Removes a single logged interaction (used to undo an outbound action that
@@ -179,15 +183,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final idx = _contacts.indexWhere((c) => c.id == contactId);
     if (idx < 0) return;
     final c = _contacts[idx];
-    final remaining =
-        c.interactions.where((e) => e.id != eventId).toList(growable: false);
+    final remaining = c.interactions
+        .where((e) => e.id != eventId)
+        .toList(growable: false);
     if (remaining.length == c.interactions.length) return; // nothing removed
     DateTime? newLast;
     for (final e in remaining) {
       if (newLast == null || e.date.isAfter(newLast)) newLast = e.date;
     }
-    final updated =
-        c.copyWith(interactions: remaining, lastInteraction: newLast);
+    final updated = c.copyWith(
+      interactions: remaining,
+      lastInteraction: newLast,
+    );
     setState(() {
       _contacts = [..._contacts]..[idx] = updated;
       if (_selectedContact?.id == contactId) _selectedContact = updated;
@@ -269,9 +276,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _persist() async {
     await _repository.save(_contacts);
     if (_signedIn) {
-      unawaited(_cloud.push(_auth.currentUser!.uid, _contacts).catchError(
-        (Object e) => debugPrint('Cloud push failed: $e'),
-      ));
+      unawaited(
+        _cloud
+            .push(_auth.currentUser!.uid, _contacts)
+            .catchError((Object e) => debugPrint('Cloud push failed: $e')),
+      );
     }
   }
 
@@ -326,8 +335,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// repoints any connections that referenced the removed contacts.
   void _applyMerge(Contact merged, List<String> mergedAwayIds) {
     setState(() {
-      var list =
-          _contacts.where((c) => !mergedAwayIds.contains(c.id)).toList();
+      var list = _contacts.where((c) => !mergedAwayIds.contains(c.id)).toList();
       final idx = list.indexWhere((c) => c.id == merged.id);
       if (idx >= 0) {
         list[idx] = merged;
@@ -349,11 +357,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _showSnack('No duplicates found');
       return;
     }
-    MergeReviewSheet.show(
-      context,
-      groups: groups,
-      onMergeGroup: _applyMerge,
-    );
+    MergeReviewSheet.show(context, groups: groups, onMergeGroup: _applyMerge);
   }
 
   void _openSettings() {
@@ -368,9 +372,67 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       onDeleteAllContacts: () => _deleteAllContacts(),
       onDeleteAccount: _signedIn ? () => _deleteAccount() : null,
       onLinkRelatives: () => _linkAllRelatives(),
+      onExportToDevice: _contacts.isEmpty ? null : () => _exportToPhone(),
       starColorMode: _starColorMode,
       onStarColorModeChanged: _setStarColorMode,
     );
+  }
+
+  /// Writes the app's contacts into the device address book, showing a
+  /// determinate progress dialog. Contacts already on the device are skipped
+  /// (see [ContactsExportService]). The confirmation prompt lives in
+  /// [SettingsView]; this runs after the user confirms.
+  Future<void> _exportToPhone() async {
+    final progress = ValueNotifier<({int done, int total})>((
+      done: 0,
+      total: _contacts.length,
+    ));
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ExportProgressDialog(progress: progress),
+    );
+    try {
+      final result = await _exportService.exportToDevice(
+        _contacts,
+        onProgress: (done, total) =>
+            progress.value = (done: done, total: total),
+      );
+      if (mounted) Navigator.of(context).pop(); // dismiss progress dialog
+      if (!mounted) return;
+
+      switch (result.status) {
+        case ExportStatus.denied:
+          _showSnack('Contacts permission denied');
+        case ExportStatus.permanentlyDenied:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Enable contacts access in Settings to export',
+              ),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: _exportService.openSettings,
+              ),
+            ),
+          );
+        case ExportStatus.success:
+          final skipped = result.skipped > 0
+              ? ' · ${result.skipped} already on your phone'
+              : '';
+          _showSnack(
+            result.exported == 0
+                ? 'All contacts are already on your phone'
+                : 'Exported ${result.exported} '
+                      'contact${result.exported == 1 ? '' : 's'}$skipped',
+          );
+      }
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+      if (mounted) _showSnack('Export failed: $e');
+    } finally {
+      progress.dispose();
+    }
   }
 
   /// Retroactively cross-links every same-last-name group as mutual
@@ -390,7 +452,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _contacts = linked);
     await _persist();
     if (mounted) {
-      _showSnack('Linked $changed contact${changed == 1 ? '' : 's'} by last name');
+      _showSnack(
+        'Linked $changed contact${changed == 1 ? '' : 's'} by last name',
+      );
     }
   }
 
@@ -458,8 +522,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1a1a1a),
-        title: const Text('Backup — copy this JSON',
-            style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: const Text(
+          'Backup — copy this JSON',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
         content: SizedBox(
           width: 400,
           child: SelectableText(
@@ -483,8 +549,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1a1a1a),
-        title: const Text('Import backup',
-            style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: const Text(
+          'Import backup',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
         content: SizedBox(
           width: 400,
           child: TextField(
@@ -505,8 +573,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           TextButton(
             onPressed: () {
               try {
-                final merged =
-                    BackupService().importMerged(_contacts, controller.text);
+                final merged = BackupService().importMerged(
+                  _contacts,
+                  controller.text,
+                );
                 setState(() => _contacts = merged);
                 unawaited(_persist());
                 Navigator.of(ctx).pop();
@@ -585,7 +655,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// needed), then persists. Reports how many contacts changed.
   Future<void> _applyTagMembership(String tag, Set<String> memberIds) async {
     final before = _contacts;
-    final updated = applyTagMembership(before, tag, memberIds, now: DateTime.now());
+    final updated = applyTagMembership(
+      before,
+      tag,
+      memberIds,
+      now: DateTime.now(),
+    );
     var changed = 0;
     for (var i = 0; i < updated.length; i++) {
       if (!identical(updated[i], before[i])) changed++;
@@ -595,14 +670,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _contacts = updated;
       final selectedId = _selectedContact?.id;
       if (selectedId != null) {
-        _selectedContact =
-            updated.firstWhere((c) => c.id == selectedId, orElse: () => _selectedContact!);
+        _selectedContact = updated.firstWhere(
+          (c) => c.id == selectedId,
+          orElse: () => _selectedContact!,
+        );
       }
     });
     await _persist();
     if (mounted) {
-      _showSnack('Updated "$tag" on $changed '
-          'contact${changed == 1 ? '' : 's'}');
+      _showSnack(
+        'Updated "$tag" on $changed '
+        'contact${changed == 1 ? '' : 's'}',
+      );
     }
   }
 
@@ -663,8 +742,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_persist());
 
       if (!mounted) return;
-      _showSnack('Imported ${toAdd.length} '
-          'contact${toAdd.length == 1 ? '' : 's'}');
+      _showSnack(
+        'Imported ${toAdd.length} '
+        'contact${toAdd.length == 1 ? '' : 's'}',
+      );
 
       // Offer to merge any duplicates the import may have introduced.
       final groups = findDuplicateGroups(_contacts);
@@ -683,8 +764,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   List<Contact> get _filteredContacts {
@@ -807,12 +889,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 : null,
             onLogInteraction: _onLogInteraction,
             // Swipe left/right through the filtered list; disabled at the ends.
-            onNext: _selectedIndex >= 0 &&
+            onNext:
+                _selectedIndex >= 0 &&
                     _selectedIndex < _filteredContacts.length - 1
                 ? () => _selectAdjacentContact(1)
                 : null,
-            onPrevious:
-                _selectedIndex > 0 ? () => _selectAdjacentContact(-1) : null,
+            onPrevious: _selectedIndex > 0
+                ? () => _selectAdjacentContact(-1)
+                : null,
           ),
 
           // Contact Form — responsive width so the panel always fits the
@@ -823,10 +907,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               top: 16,
               right: 16,
               bottom: 16,
-              width: math.min(
-                380.0,
-                MediaQuery.of(context).size.width - 32,
-              ),
+              width: math.min(380.0, MediaQuery.of(context).size.width - 32),
               child: ContactForm(
                 existingContact: _editingContact,
                 allContacts: _contacts,
@@ -899,8 +980,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return IconButton(
       tooltip: 'Constellations',
       onPressed: _openClusterList,
-      icon: const Icon(Icons.bubble_chart_outlined,
-          color: Color(0xFF6b7280), size: 20),
+      icon: const Icon(
+        Icons.bubble_chart_outlined,
+        color: Color(0xFF6b7280),
+        size: 20,
+      ),
     );
   }
 
@@ -949,12 +1033,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       child: TextField(
                         onChanged: (v) => setState(() => _searchQuery = v),
                         style: const TextStyle(
-                            color: Color(0xFFe2e8f0), fontSize: 14),
+                          color: Color(0xFFe2e8f0),
+                          fontSize: 14,
+                        ),
                         decoration: const InputDecoration(
                           hintText: 'Search network...',
                           hintStyle: TextStyle(color: Color(0xFF6b7280)),
-                          prefixIcon: Icon(Icons.search,
-                              color: Color(0xFF6b7280), size: 16),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Color(0xFF6b7280),
+                            size: 16,
+                          ),
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.symmetric(vertical: 10),
                         ),
@@ -968,8 +1057,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   PopupMenuButton<String>(
                     tooltip: 'More',
                     color: const Color(0xFF1a1a1a),
-                    icon: const Icon(Icons.more_vert,
-                        color: Color(0xFF6b7280), size: 20),
+                    icon: const Icon(
+                      Icons.more_vert,
+                      color: Color(0xFF6b7280),
+                      size: 20,
+                    ),
                     onSelected: (value) {
                       switch (value) {
                         case 'import':
@@ -995,10 +1087,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       _menuItem('info', Icons.info_outline, 'About this view'),
                       const PopupMenuDivider(),
-                      _menuItem('attention', Icons.notifications_outlined,
-                          'Needs attention'),
                       _menuItem(
-                          'duplicates', Icons.merge_type, 'Review duplicates'),
+                        'attention',
+                        Icons.notifications_outlined,
+                        'Needs attention',
+                      ),
+                      _menuItem(
+                        'duplicates',
+                        Icons.merge_type,
+                        'Review duplicates',
+                      ),
                     ],
                   ),
                 ],
@@ -1018,8 +1116,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String label, {
     bool enabled = true,
   }) {
-    final textColor =
-        enabled ? const Color(0xFFe2e8f0) : const Color(0xFF6b7280);
+    final textColor = enabled
+        ? const Color(0xFFe2e8f0)
+        : const Color(0xFF6b7280);
     return PopupMenuItem<String>(
       value: value,
       enabled: enabled,
@@ -1090,8 +1189,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close,
-                        color: Color(0xFF9ca3af), size: 20),
+                    icon: const Icon(
+                      Icons.close,
+                      color: Color(0xFF9ca3af),
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
@@ -1169,7 +1271,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             color: const Color(0xFF1a1a1a).withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: const Color(0xFF333333).withValues(alpha: 0.5)),
+              color: const Color(0xFF333333).withValues(alpha: 0.5),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1211,7 +1314,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     // because the legend rebuilds with the filtered list.
                     'Contact Node (${_filteredContacts.length})',
                     style: const TextStyle(
-                        color: Color(0xFF9ca3af), fontSize: 10),
+                      color: Color(0xFF9ca3af),
+                      fontSize: 10,
+                    ),
                   ),
                 ],
               ),
@@ -1219,7 +1324,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(width: 16, height: 1, color: const Color(0xFF4b5563)),
+                  Container(
+                    width: 16,
+                    height: 1,
+                    color: const Color(0xFF4b5563),
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Relationship',
@@ -1230,6 +1339,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Modal progress dialog shown while exporting contacts to the device address
+/// book. Listens to a [done]/[total] notifier so the bar fills as batches land.
+class _ExportProgressDialog extends StatelessWidget {
+  final ValueListenable<({int done, int total})> progress;
+
+  const _ExportProgressDialog({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1a1a1a),
+      title: const Text(
+        'Exporting to phone',
+        style: TextStyle(color: Color(0xFFe2e8f0), fontSize: 16),
+      ),
+      content: ValueListenableBuilder<({int done, int total})>(
+        valueListenable: progress,
+        builder: (context, value, _) {
+          final total = value.total == 0 ? 1 : value.total;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(100),
+                child: LinearProgressIndicator(
+                  value: value.done == 0 ? null : value.done / total,
+                  minHeight: 8,
+                  backgroundColor: const Color(0xFF333333),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Color(0xFF6366f1),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                value.done == 0
+                    ? 'Preparing…'
+                    : 'Added ${value.done} of ${value.total}',
+                style: const TextStyle(color: Color(0xFF9ca3af), fontSize: 13),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

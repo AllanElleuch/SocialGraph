@@ -289,9 +289,11 @@ class GraphPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
 
-      // Centered horizontally, sitting just below the figure's center band.
+      // Centered horizontally, sitting just below the cluster's lowest node
+      // (center + bounding radius) plus a small screen-constant gap — so the
+      // label never lands in the middle of a large group like the orphans.
       final left = g.center.dx - tp.width / 2;
-      var top = g.center.dy + 150 / scale;
+      var top = g.center.dy + g.radius + 28 / scale;
 
       // Drop the label below any already-placed label it would overlap, so two
       // adjacent constellations stack vertically instead of colliding.

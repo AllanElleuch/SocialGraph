@@ -102,11 +102,17 @@ class ConstellationGroup {
   final String constellation;
   final Offset center;
   final int index;
+
+  /// Bounding radius of the group's nodes around [center], so labels can be
+  /// placed just below the lowest node instead of inside the cluster.
+  final double radius;
+
   const ConstellationGroup({
     required this.tag,
     required this.constellation,
     required this.center,
     required this.index,
+    this.radius = 0,
   });
 }
 
@@ -138,7 +144,8 @@ String? constellationTagAt(
   String? best;
   var bestDistance = double.infinity;
   for (final g in labels) {
-    final labelCenter = Offset(g.center.dx, g.center.dy + 150 / scale);
+    // Match the painter: the label sits below the cluster (center + radius).
+    final labelCenter = Offset(g.center.dx, g.center.dy + g.radius + 28 / scale);
     final distance = (contentPoint - labelCenter).distance;
     if (distance < radius && distance < bestDistance) {
       bestDistance = distance;
@@ -266,6 +273,7 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
       constellation: tmpl.name,
       center: center,
       index: gi,
+      radius: _groupRadius(ids.length, tmpl.starCount),
     ));
 
     final used = math.min(ids.length, tmpl.starCount);
@@ -309,25 +317,33 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
     final orphanIndex = namedTags.length;
     final rows = namedTags.isEmpty ? 0 : (namedTags.length / cols).ceil();
     final bandTop = rows * cellSize + (rows == 0 ? 0.0 : 80.0);
-    const cell = 74.0;
-    final looseCols = math.sqrt(loose.length).ceil();
-    final looseRows = (loose.length / looseCols).ceil();
+    // Spread the orphans as an even golden-angle ("sunflower") disc — like the
+    // constellations — instead of a hard rectangular grid, so a large untagged
+    // set reads as an organic cloud rather than a square block.
+    final orphanRadius = _nodeSpacing * math.sqrt(loose.length.toDouble());
+    final centerX = math.max(orphanRadius, cols * cellSize / 2);
+    final orphanCenter = Offset(centerX, bandTop + orphanRadius);
     for (var i = 0; i < loose.length; i++) {
       final id = loose[i];
+      final theta = i * _goldenAngle;
+      final r = _nodeSpacing * math.sqrt(i + 0.5);
+      // A little deterministic jitter softens the perfect spiral into a cloud.
       final rng = math.Random(_seed(id));
-      final col = i % looseCols;
-      final row = i ~/ looseCols;
-      positions[id] = Offset(
-        col * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
-        bandTop + row * cell + (rng.nextDouble() - 0.5) * cell * 0.6,
-      );
+      positions[id] = orphanCenter +
+          Offset(math.cos(theta) * r, math.sin(theta) * r) +
+          Offset(
+            (rng.nextDouble() - 0.5) * _nodeSpacing * 0.4,
+            (rng.nextDouble() - 0.5) * _nodeSpacing * 0.4,
+          );
       groupIndex[id] = orphanIndex;
     }
     groups.add(ConstellationGroup(
       tag: 'Orphans',
       constellation: 'Orphans',
-      center: Offset(looseCols * cell / 2, bandTop + looseRows * cell / 2),
+      center: orphanCenter,
       index: orphanIndex,
+      // Cover the spiral radius plus the jitter so the label clears every node.
+      radius: orphanRadius + _nodeSpacing,
     ));
   }
 
