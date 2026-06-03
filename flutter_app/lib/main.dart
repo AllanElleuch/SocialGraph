@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'feature_flags.dart';
 import 'models/contact.dart';
 import 'services/contacts_import_service.dart';
 import 'services/import_dedup.dart';
@@ -903,58 +904,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
         child: Row(
           children: [
-            // Logo
-            Flexible(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF6366f1),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Flexible(
-                        child: Text(
-                          'CONTEXTUAL CONTACTS',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.5,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'GRAPH-BASED NETWORK EXPLORER',
-                    style: TextStyle(
-                      color: Color(0xFF6b7280),
-                      fontSize: 10,
-                      letterSpacing: 3,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(width: 12),
-
             // Search + Info
-            Flexible(
-              flex: 4,
+            Expanded(
               child: Row(
                 children: [
                   Expanded(
@@ -1170,8 +1121,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildLegend() {
-    // The Stats tab is a full dashboard, not a clustered graph — no legend.
-    if (_pivot == PivotType.stats || _pivot == PivotType.contacts) {
+    // The "Active view" legend only annotates the Mutuals constellation, and is
+    // hidden by default behind a feature flag (see [kShowActiveViewLegend]).
+    if (!kShowActiveViewLegend || _pivot != PivotType.mutual) {
       return const SizedBox.shrink();
     }
     return Positioned(

@@ -261,9 +261,9 @@ class GraphPainter extends CustomPainter {
           style: TextStyle(
             color: const Color(0xFFB8C2E0)
                 .withValues(alpha: (0.55 * dim).clamp(0.0, 1.0)),
-            fontSize: 13 / scale,
-            letterSpacing: 3 / scale,
-            fontWeight: FontWeight.w500,
+            fontSize: 64 / scale,
+            letterSpacing: 10 / scale,
+            fontWeight: FontWeight.w600,
           ),
         ),
         textDirection: TextDirection.ltr,

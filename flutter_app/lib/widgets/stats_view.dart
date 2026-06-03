@@ -380,9 +380,22 @@ class _HeroCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    level.xpLabel,
-                    style: const TextStyle(color: _P.accent, fontSize: 13),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        level.xpLabel,
+                        style:
+                            const TextStyle(color: _P.accent, fontSize: 13),
+                      ),
+                      const Spacer(),
+                      // In-level ratio + percent so the bar's fill is readable.
+                      Text(
+                        '${level.xpRatioLabel} · ${level.progressPercentLabel}',
+                        style: const TextStyle(color: _P.muted, fontSize: 12),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   ClipRRect(

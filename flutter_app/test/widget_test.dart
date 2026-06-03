@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const SocialGraphApp());
     await tester.pump();
 
-    // Verify the app title is displayed
-    expect(find.text('CONTEXTUAL CONTACTS'), findsOneWidget);
+    // The header search field is present once the app has booted.
+    expect(find.text('Search network...'), findsOneWidget);
   });
 }

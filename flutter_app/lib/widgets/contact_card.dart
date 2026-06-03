@@ -6,6 +6,7 @@ import '../services/quick_actions_service.dart';
 import '../services/social_links.dart';
 import '../services/relationship_strength.dart';
 import '../services/reach_out_service.dart';
+import 'full_screen_photo.dart';
 
 class ContactCard extends StatelessWidget {
   final Contact? contact;
@@ -63,13 +64,18 @@ class ContactCard extends StatelessWidget {
     // screen (minus margins) on phones so the card never overflows.
     const margin = 16.0;
     final width = math.min(320.0, MediaQuery.of(context).size.width - margin * 2);
+    final media = MediaQuery.of(context);
+    // Start below the status bar / Dynamic Island, and clear the home
+    // indicator at the bottom, so the header isn't tucked under the notch.
+    final top = media.padding.top + 12;
+    final bottom = media.padding.bottom + 12;
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      top: 16,
+      top: top,
       // When hidden, slide fully off-screen to the right.
       right: contact != null ? margin : -(width + 24),
-      bottom: 16,
+      bottom: bottom,
       width: width,
       child: contact != null
           ? GestureDetector(
@@ -137,10 +143,20 @@ class ContactCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (c.hasPhoto) ...[
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: const Color(0xFF333333),
-                    backgroundImage: MemoryImage(c.photoThumbnail!),
+                  GestureDetector(
+                    onTap: () => FullScreenPhoto.show(
+                      context,
+                      c.photoThumbnail!,
+                      heroTag: 'contact-photo-${c.id}',
+                    ),
+                    child: Hero(
+                      tag: 'contact-photo-${c.id}',
+                      child: CircleAvatar(
+                        radius: 22,
+                        backgroundColor: const Color(0xFF333333),
+                        backgroundImage: MemoryImage(c.photoThumbnail!),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                 ],

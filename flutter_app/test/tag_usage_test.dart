@@ -44,4 +44,27 @@ void main() {
       expect(tagUsageCounts(const []), isEmpty);
     });
   });
+
+  group('sharedTagForEdge', () {
+    test('prefers a meaningful tag over the generic Imported tag', () {
+      // Both contacts are imported AND share "UTT"; tapping must open UTT.
+      expect(
+        sharedTagForEdge(['Imported', 'UTT'], ['Imported', 'UTT']),
+        'UTT',
+      );
+    });
+
+    test('falls back to Imported when it is the only shared tag', () {
+      expect(sharedTagForEdge(['Imported', 'a'], ['Imported', 'b']),
+          'Imported');
+    });
+
+    test('returns the first shared tag when none is Imported', () {
+      expect(sharedTagForEdge(['UTT', 'gym'], ['gym', 'UTT']), 'UTT');
+    });
+
+    test('returns empty when there is no shared tag', () {
+      expect(sharedTagForEdge(['a'], ['b']), '');
+    });
+  });
 }

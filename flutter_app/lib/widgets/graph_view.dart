@@ -6,6 +6,7 @@ import '../models/contact.dart';
 import '../models/graph_node.dart';
 import '../services/force_simulation.dart';
 import '../services/relatives.dart';
+import '../services/tag_usage.dart';
 import '../services/tag_rules.dart';
 import '../painters/graph_painter.dart';
 import '../painters/star_style.dart';
@@ -43,7 +44,7 @@ class GraphView extends StatefulWidget {
 }
 
 class _GraphViewState extends State<GraphView>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late List<GraphNode> _nodes;
   late List<GraphLink> _links;
 
@@ -69,11 +70,6 @@ class _GraphViewState extends State<GraphView>
   /// without movement into a selection (a tap) even while panning is enabled.
   GraphNode? _pressedNode;
   Offset? _lastFocalPoint;
-
-  /// Time and position of the last tap on empty space, used to detect a
-  /// double-tap on a constellation label (which opens its tag).
-  DateTime? _lastEmptyTapTime;
-  Offset? _lastEmptyTapPos;
 
   bool _graphBuilt = false;
 
@@ -405,31 +401,16 @@ class _GraphViewState extends State<GraphView>
     _lastFocalPoint = null;
   }
 
-  /// Detects a double-tap on empty space and, if it lands on a constellation's
-  /// tag label, opens that tag via [GraphView.onOpenTag].
+  /// Handles a single tap on empty space (Mutuals view): if it lands on a tag
+  /// edge (a tag linking two nodes) or a constellation name label, opens that
+  /// tag via [GraphView.onOpenTag].
   void _handleEmptyTap(Offset localPos) {
     final onOpenTag = widget.onOpenTag;
-    if (onOpenTag == null || _constellationLabels.isEmpty) return;
-
-    final now = DateTime.now();
-    final prevTime = _lastEmptyTapTime;
-    final prevPos = _lastEmptyTapPos;
-    final isDoubleTap = prevTime != null &&
-        prevPos != null &&
-        now.difference(prevTime).inMilliseconds < 300 &&
-        (localPos - prevPos).distance < 40;
-
-    if (isDoubleTap) {
-      _lastEmptyTapTime = null;
-      _lastEmptyTapPos = null;
-      // Prefer an edge under the tap (a tag linking two nodes); fall back to a
-      // constellation name label.
-      final tag = _edgeTagAt(localPos) ?? _tagLabelAt(localPos);
-      if (tag != null && tag.isNotEmpty) onOpenTag(tag);
-    } else {
-      _lastEmptyTapTime = now;
-      _lastEmptyTapPos = localPos;
-    }
+    if (onOpenTag == null || widget.pivot != PivotType.mutual) return;
+    // Prefer an edge under the tap (a tag linking two nodes); fall back to a
+    // constellation name label.
+    final tag = _edgeTagAt(localPos) ?? _tagLabelAt(localPos);
+    if (tag != null && tag.isNotEmpty) onOpenTag(tag);
   }
 
   /// The shared tag of the graph edge nearest [localPos] (screen coords), or
@@ -460,10 +441,7 @@ class _GraphViewState extends State<GraphView>
       final ca = byId[link.sourceId];
       final cb = byId[link.targetId];
       if (ca == null || cb == null) continue;
-      final shared = ca.tags.firstWhere(
-        (t) => cb.tags.contains(t),
-        orElse: () => '',
-      );
+      final shared = sharedTagForEdge(ca.tags, cb.tags);
       if (shared.isNotEmpty) {
         bestDistance = distance;
         best = shared;

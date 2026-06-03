@@ -29,38 +29,61 @@ class Controls extends StatelessWidget {
       bottom: 32,
       left: 0,
       right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1a1a1a).withValues(alpha: 0.8),
-            borderRadius: BorderRadius.circular(100),
-            border: Border.all(color: const Color(0xFF333333)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Center the pill when it fits; on a screen too small to show every
+          // button, scroll horizontally instead of overflowing. The minWidth
+          // makes the centred area span the viewport so it stays centred until
+          // the content actually exceeds it.
+          final viewport = (constraints.maxWidth - 24).clamp(
+            0.0,
+            double.infinity,
+          );
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: viewport),
+              child: Align(
+                alignment: Alignment.center,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1a1a1a).withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(color: const Color(0xFF333333)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ...buttons.map((btn) => _buildButton(btn)),
+                      // Settings sits right after the view pivots.
+                      _buildIconButton(
+                        Icons.settings_outlined,
+                        onOpenSettings,
+                        tooltip: 'Settings',
+                      ),
+                      Container(
+                        width: 1,
+                        height: 24,
+                        color: const Color(0xFF333333),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                      _buildAddButton(),
+                    ],
+                  ),
+                ),
               ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...buttons.map((btn) => _buildButton(btn)),
-              // Settings sits right after the view pivots (next to Timeline).
-              _buildIconButton(Icons.settings_outlined, onOpenSettings,
-                  tooltip: 'Settings'),
-              Container(
-                width: 1,
-                height: 24,
-                color: const Color(0xFF333333),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              _buildAddButton(),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -71,7 +94,7 @@ class Controls extends StatelessWidget {
       onTap: () => onPivotChanged(btn.pivot),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFF4f46e5) : Colors.transparent,
           borderRadius: BorderRadius.circular(100),
@@ -80,7 +103,7 @@ class Controls extends StatelessWidget {
                   BoxShadow(
                     color: const Color(0xFF6366f1).withValues(alpha: 0.2),
                     blurRadius: 12,
-                  )
+                  ),
                 ]
               : [],
         ),
@@ -92,8 +115,8 @@ class Controls extends StatelessWidget {
               size: 18,
               color: isActive ? Colors.white : const Color(0xFF9ca3af),
             ),
-            // Show the label only for the active pivot to keep the bar
-            // within narrow screens.
+            // Show the label only for the active pivot to keep the bar compact;
+            // the bar scrolls horizontally when it can't fit (see build()).
             if (isActive) ...[
               const SizedBox(width: 8),
               Text(
@@ -112,14 +135,17 @@ class Controls extends StatelessWidget {
   }
 
   /// A non-toggle icon action (e.g. Settings) styled to match the bar.
-  Widget _buildIconButton(IconData icon, VoidCallback onTap,
-      {required String tooltip}) {
+  Widget _buildIconButton(
+    IconData icon,
+    VoidCallback onTap, {
+    required String tooltip,
+  }) {
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Icon(icon, size: 18, color: const Color(0xFF9ca3af)),
         ),
       ),

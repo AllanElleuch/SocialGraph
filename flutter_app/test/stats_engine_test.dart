@@ -82,6 +82,9 @@ void main() {
       expect(l.progress, closeTo(0.5, 1e-9));
       expect(l.xpToNextLevel, 100);
       expect(l.rankTitle, 'Acquaintance');
+      // In-level ratio + percent shown next to the XP bar.
+      expect(l.xpRatioLabel, '100 / 200 XP');
+      expect(l.progressPercentLabel, '50%');
     });
 
     test('rank titles follow the named 10-level ladder', () {

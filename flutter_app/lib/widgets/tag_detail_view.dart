@@ -77,6 +77,24 @@ class _TagDetailViewState extends State<TagDetailView> {
     Navigator.of(context).pop();
   }
 
+  /// Tags every contact in the current (filtered) list.
+  void _selectAll() {
+    setState(() {
+      for (final c in _filtered) {
+        if (_members.add(c.id)) _dirty = true;
+      }
+    });
+  }
+
+  /// Untags every contact in the current (filtered) list.
+  void _unselectAll() {
+    setState(() {
+      for (final c in _filtered) {
+        if (_members.remove(c.id)) _dirty = true;
+      }
+    });
+  }
+
   List<Contact> get _filtered {
     final query = _query.trim().toLowerCase();
     final list = [...widget.contacts]..sort((a, b) =>
@@ -117,6 +135,39 @@ class _TagDetailViewState extends State<TagDetailView> {
           ],
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Select',
+            color: _Palette.surface,
+            icon: const Icon(Icons.more_vert, color: _Palette.textPrimary),
+            onSelected: (value) {
+              if (value == 'all') _selectAll();
+              if (value == 'none') _unselectAll();
+            },
+            itemBuilder: (ctx) => const [
+              PopupMenuItem(
+                value: 'all',
+                child: Row(
+                  children: [
+                    Icon(Icons.done_all, color: _Palette.accent, size: 18),
+                    SizedBox(width: 10),
+                    Text('Select all',
+                        style: TextStyle(color: _Palette.textPrimary)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'none',
+                child: Row(
+                  children: [
+                    Icon(Icons.remove_done, color: _Palette.textMuted, size: 18),
+                    SizedBox(width: 10),
+                    Text('Unselect all',
+                        style: TextStyle(color: _Palette.textPrimary)),
+                  ],
+                ),
+              ),
+            ],
+          ),
           TextButton(
             onPressed: _dirty ? _save : () => Navigator.of(context).pop(),
             child: Text(

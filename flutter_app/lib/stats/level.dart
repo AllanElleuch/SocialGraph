@@ -238,4 +238,16 @@ class LevelStats {
 
   /// "340 XP" total label.
   String get xpLabel => '$xp XP';
+
+  /// "286 / 500 XP" — XP earned into the current level over the XP the level
+  /// spans, so the progress bar's fill is quantified. Falls back to the total
+  /// XP label if the level span is degenerate.
+  String get xpRatioLabel {
+    final span = xpSpanThisLevel;
+    if (span <= 0) return xpLabel;
+    return '$xpIntoLevel / $span XP';
+  }
+
+  /// "57%" — how far through the current level (matches the progress bar).
+  String get progressPercentLabel => '${(progress * 100).round()}%';
 }
