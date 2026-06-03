@@ -15,6 +15,7 @@ song file that matches the house format.
 | --- | --- | --- |
 | [socialgraph_anthem.md](socialgraph_anthem.md) | Bright indie electro-pop anthem | "Who's in your orbit?" |
 | [socialgraph_funk_rap.md](socialgraph_funk_rap.md) | Funk-hop / nu-disco, cheeky rap | "Keep in touch, don't ghost me" |
+| [socialgraph_synthwave.md](socialgraph_synthwave.md) | 80s synthwave / retrowave, neon & emotional | "Light up the night, who's in your orbit?" |
 
 ---
 

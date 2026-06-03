@@ -40,6 +40,7 @@ import 'widgets/backup_view.dart';
 import 'widgets/settings_view.dart';
 import 'widgets/tag_detail_view.dart';
 import 'widgets/filter_sheet.dart';
+import 'widgets/contacts_list_view.dart';
 
 /// Whether Firebase initialized successfully. When false the app runs fully
 /// offline-first with no auth/cloud features (e.g. config files absent, tests).
@@ -755,11 +756,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               now: DateTime.now(),
               onSelectContact: (c) => setState(() => _selectedContact = c),
             )
+          else if (_pivot == PivotType.contacts)
+            ContactsListView(
+              contacts: _filteredContacts,
+              onSelectContact: (c) => setState(() => _selectedContact = c),
+            )
           else
             GraphView(
               contacts: _filteredContacts,
               pivot: _pivot,
               onSelectContact: (c) => setState(() => _selectedContact = c),
+              onOpenTag: _openTagDetail,
               starColorMode: _starColorMode,
               selectedId: _selectedContact?.id,
             ),
@@ -973,7 +980,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  if (_pivot == PivotType.mutual) _buildFilterButton(),
+                  if (_pivot == PivotType.mutual ||
+                      _pivot == PivotType.contacts)
+                    _buildFilterButton(),
                   PopupMenuButton<String>(
                     tooltip: 'More',
                     color: const Color(0xFF1a1a1a),
@@ -1162,7 +1171,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildLegend() {
     // The Stats tab is a full dashboard, not a clustered graph — no legend.
-    if (_pivot == PivotType.stats) return const SizedBox.shrink();
+    if (_pivot == PivotType.stats || _pivot == PivotType.contacts) {
+      return const SizedBox.shrink();
+    }
     return Positioned(
       // Sit above the bottom controls bar (≈52px tall at bottom: 32) so the
       // two never overlap on narrow screens.

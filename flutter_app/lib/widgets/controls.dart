@@ -18,6 +18,7 @@ class Controls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final buttons = [
+      _ButtonDef(PivotType.contacts, Icons.contacts_outlined, 'Contacts'),
       _ButtonDef(PivotType.mutual, Icons.people, 'Mutuals'),
       _ButtonDef(PivotType.location, Icons.map_outlined, 'Location'),
       _ButtonDef(PivotType.time, Icons.schedule, 'Timeline'),

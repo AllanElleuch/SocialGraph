@@ -336,4 +336,4 @@ class Contact {
   }
 }
 
-enum PivotType { mutual, location, time, stats }
+enum PivotType { contacts, mutual, location, time, stats }

@@ -17,6 +17,10 @@ class GraphView extends StatefulWidget {
   final PivotType pivot;
   final ValueChanged<Contact> onSelectContact;
 
+  /// Called when a constellation's tag label is double-tapped (Mutuals view),
+  /// to open that tag's detail / bulk-tagging screen. Null disables it.
+  final void Function(String tag)? onOpenTag;
+
   /// How contact stars are tinted (relationship temperature vs constellation).
   final StarColorMode starColorMode;
 
@@ -29,6 +33,7 @@ class GraphView extends StatefulWidget {
     required this.contacts,
     required this.pivot,
     required this.onSelectContact,
+    this.onOpenTag,
     this.starColorMode = StarColorMode.temperature,
     this.selectedId,
   });
@@ -64,6 +69,11 @@ class _GraphViewState extends State<GraphView>
   /// without movement into a selection (a tap) even while panning is enabled.
   GraphNode? _pressedNode;
   Offset? _lastFocalPoint;
+
+  /// Time and position of the last tap on empty space, used to detect a
+  /// double-tap on a constellation label (which opens its tag).
+  DateTime? _lastEmptyTapTime;
+  Offset? _lastEmptyTapPos;
 
   bool _graphBuilt = false;
 
@@ -387,9 +397,91 @@ class _GraphViewState extends State<GraphView>
     } else if (_pressedNode != null && movedLittle) {
       // A tap on a star (no pan) selects it.
       widget.onSelectContact(_pressedNode!.data);
+    } else if (movedLittle) {
+      // A tap on empty space — may be a double-tap on a tag label.
+      _handleEmptyTap(event.localPosition);
     }
     _pressedNode = null;
     _lastFocalPoint = null;
+  }
+
+  /// Detects a double-tap on empty space and, if it lands on a constellation's
+  /// tag label, opens that tag via [GraphView.onOpenTag].
+  void _handleEmptyTap(Offset localPos) {
+    final onOpenTag = widget.onOpenTag;
+    if (onOpenTag == null || _constellationLabels.isEmpty) return;
+
+    final now = DateTime.now();
+    final prevTime = _lastEmptyTapTime;
+    final prevPos = _lastEmptyTapPos;
+    final isDoubleTap = prevTime != null &&
+        prevPos != null &&
+        now.difference(prevTime).inMilliseconds < 300 &&
+        (localPos - prevPos).distance < 40;
+
+    if (isDoubleTap) {
+      _lastEmptyTapTime = null;
+      _lastEmptyTapPos = null;
+      // Prefer an edge under the tap (a tag linking two nodes); fall back to a
+      // constellation name label.
+      final tag = _edgeTagAt(localPos) ?? _tagLabelAt(localPos);
+      if (tag != null && tag.isNotEmpty) onOpenTag(tag);
+    } else {
+      _lastEmptyTapTime = now;
+      _lastEmptyTapPos = localPos;
+    }
+  }
+
+  /// The shared tag of the graph edge nearest [localPos] (screen coords), or
+  /// null when the tap isn't on a tag-bearing edge. An edge's tag is the first
+  /// tag both its endpoints carry; family-link edges (no shared tag) are
+  /// ignored. Works in content space so it's correct at any pan/zoom.
+  String? _edgeTagAt(Offset localPos) {
+    if (_links.isEmpty) return null;
+    final matrix = _transformController.value;
+    final inverted = Matrix4.tryInvert(matrix);
+    if (inverted == null) return null;
+    final content = MatrixUtils.transformPoint(inverted, localPos);
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 0) return null;
+
+    final threshold = 24 / scale; // forgiving, constant-on-screen hit width
+    final posById = {for (final n in _nodes) n.id: Offset(n.x, n.y)};
+    final byId = {for (final c in widget.contacts) c.id: c};
+
+    String? best;
+    var bestDistance = double.infinity;
+    for (final link in _links) {
+      final a = posById[link.sourceId];
+      final b = posById[link.targetId];
+      if (a == null || b == null) continue;
+      final distance = distanceToSegment(content, a, b);
+      if (distance >= threshold || distance >= bestDistance) continue;
+      final ca = byId[link.sourceId];
+      final cb = byId[link.targetId];
+      if (ca == null || cb == null) continue;
+      final shared = ca.tags.firstWhere(
+        (t) => cb.tags.contains(t),
+        orElse: () => '',
+      );
+      if (shared.isNotEmpty) {
+        bestDistance = distance;
+        best = shared;
+      }
+    }
+    return best;
+  }
+
+  /// The tag of the constellation label nearest [localPos] (screen coords),
+  /// or null when the tap isn't close to any label. Works in content space so
+  /// it's correct at any pan/zoom.
+  String? _tagLabelAt(Offset localPos) {
+    final matrix = _transformController.value;
+    final inverted = Matrix4.tryInvert(matrix);
+    if (inverted == null) return null;
+    final content = MatrixUtils.transformPoint(inverted, localPos);
+    final scale = matrix.getMaxScaleOnAxis();
+    return constellationTagAt(content, scale, _constellationLabels);
   }
 
   @override

@@ -110,6 +110,44 @@ class ConstellationGroup {
   });
 }
 
+/// Shortest distance from [p] to the line segment [a]–[b]. Used to hit-test a
+/// tap against a graph edge (a line linking two nodes).
+double distanceToSegment(Offset p, Offset a, Offset b) {
+  final dx = b.dx - a.dx;
+  final dy = b.dy - a.dy;
+  final lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared == 0) return (p - a).distance; // a == b
+  var t = ((p.dx - a.dx) * dx + (p.dy - a.dy) * dy) / lengthSquared;
+  t = t.clamp(0.0, 1.0);
+  final projection = Offset(a.dx + t * dx, a.dy + t * dy);
+  return (p - projection).distance;
+}
+
+/// The tag of the constellation label nearest [contentPoint] (in graph/content
+/// coordinates) at the current [scale], or null when none is within the hit
+/// radius. The label is drawn `150/scale` below each group's center (see
+/// `GraphPainter`), and the hit radius (`180/scale`) scales with zoom so the
+/// touch target stays roughly constant on screen. The closest label wins.
+String? constellationTagAt(
+  Offset contentPoint,
+  double scale,
+  List<ConstellationGroup> labels,
+) {
+  if (scale <= 0) return null;
+  final radius = 180 / scale;
+  String? best;
+  var bestDistance = double.infinity;
+  for (final g in labels) {
+    final labelCenter = Offset(g.center.dx, g.center.dy + 150 / scale);
+    final distance = (contentPoint - labelCenter).distance;
+    if (distance < radius && distance < bestDistance) {
+      bestDistance = distance;
+      best = g.tag;
+    }
+  }
+  return best;
+}
+
 /// The computed sky: where each contact sits, the figure lines to draw, the
 /// group index per contact (for coloring / illumination), and the placed groups
 /// (for labels).
