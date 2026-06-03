@@ -9,6 +9,30 @@ Paste the **Style** into Suno's *Style of Music* box and the **Lyrics** into the
 
 ---
 
+## Song Description (Simple mode — let Suno write the lyrics)
+
+Use this when you want Suno to generate the lyrics itself. Switch Suno to
+**Simple** mode and paste this whole paragraph into the *Song Description* box
+(no separate style/lyrics fields needed).
+
+```
+An upbeat, feel-good indie electro-pop anthem (around 120 BPM) to advertise
+"SocialGraph", a phone app that turns your messy contact list into a beautiful,
+glowing map of your relationships — friends shown as stars and constellations.
+Bright synth plucks, punchy four-on-the-floor kick, handclaps and a big
+sing-along chorus with male and female duet vocals. The song tells a little
+story: it opens with someone overwhelmed by a thousand names they don't really
+know; then the app connects the dots and their world lights up. They tap once to
+call or text, get gentle reminders to reach out before friendships fade, earn
+streaks and achievement badges for staying in touch, and feel their circle grow
+closer. The chorus repeats the tagline hook "Who's in your orbit?". The bridge is
+warm and reassuring — everything synced and backed up, the people who matter
+right before your eyes. Ends triumphant and bright. Tech-startup, phone-ad
+energy: modern, playful, radio-ready.
+```
+
+---
+
 ## Style (paste into "Style of Music")
 
 ```

@@ -198,30 +198,35 @@ class GraphPainter extends CustomPainter {
 
   void _drawEdgeLabel(
       Canvas canvas, String label, Offset mid, double scale, double dim) {
+    // Grow the label as the user zooms in (so it actually becomes readable),
+    // capped so it never gets absurd. `fc` is the content-space font size that
+    // renders to `onScreen` logical px after the view transform.
+    final onScreen = (scale * 13.0).clamp(20.0, 60.0);
+    final fc = onScreen / scale;
     final tp = TextPainter(
       text: TextSpan(
         text: label,
         style: TextStyle(
-          color: const Color(0xFFE6ECFF)
-              .withValues(alpha: (0.92 * dim).clamp(0.0, 1.0)),
-          fontSize: 10.5 / scale,
-          fontWeight: FontWeight.w500,
+          color: const Color(0xFFEEF3FF)
+              .withValues(alpha: dim.clamp(0.0, 1.0)),
+          fontSize: fc,
+          fontWeight: FontWeight.w600,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
 
-    final padH = 5 / scale, padV = 2.5 / scale;
+    final padH = fc * 0.5, padV = fc * 0.3;
     final rect = Rect.fromCenter(
       center: mid,
       width: tp.width + padH * 2,
       height: tp.height + padV * 2,
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(5 / scale)),
+      RRect.fromRectAndRadius(rect, Radius.circular(fc * 0.5)),
       Paint()
         ..color = const Color(0xFF0A0E1A)
-            .withValues(alpha: (0.72 * dim).clamp(0.0, 1.0)),
+            .withValues(alpha: (0.82 * dim).clamp(0.0, 1.0)),
     );
     tp.paint(canvas, Offset(mid.dx - tp.width / 2, mid.dy - tp.height / 2));
   }
@@ -470,21 +475,32 @@ class GraphPainter extends CustomPainter {
 
   void _drawLabel(Canvas canvas, String name, Offset center, double radius,
       double scale, double dim) {
+    // The name grows as you zoom into a node (capped), and carries a soft
+    // shadow so it stays legible over the node's bright glow.
+    final onScreen = (scale * 10.0).clamp(15.0, 48.0);
+    final fc = onScreen / scale;
     final tp = TextPainter(
       text: TextSpan(
         text: name,
         style: TextStyle(
-          color: const Color(0xFFE2E8F0)
-              .withValues(alpha: (0.9 * dim).clamp(0.0, 1.0)),
-          // Compensate for the view transform so labels stay a constant size.
-          fontSize: 12 / scale,
+          color: const Color(0xFFF1F5FF)
+              .withValues(alpha: dim.clamp(0.0, 1.0)),
+          fontSize: fc,
           fontFamily: 'Inter',
-          letterSpacing: 0.5 / scale,
+          fontWeight: FontWeight.w600,
+          letterSpacing: fc * 0.02,
+          shadows: [
+            Shadow(
+              color: const Color(0xFF000000)
+                  .withValues(alpha: (0.85 * dim).clamp(0.0, 1.0)),
+              blurRadius: fc * 0.5,
+            ),
+          ],
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, Offset(center.dx + radius + 4 / scale, center.dy - 6 / scale));
+    tp.paint(canvas, Offset(center.dx + radius + fc * 0.45, center.dy - fc / 2));
   }
 
   // Simplified Magma colorscale interpolation (time pivot only).

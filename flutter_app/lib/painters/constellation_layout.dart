@@ -208,8 +208,10 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
       }
     }
 
-    // Overflow: extra members orbit the figure as satellite stars (no lines),
-    // spread a bit more for bigger groups so they don't pile up.
+    // Overflow: extra members orbit the figure as satellite stars. Each is
+    // linked to one of the figure stars so every member of a tag-group is
+    // visibly connected — sharing a tag always shows a line, even when the
+    // group is far larger than its star pattern.
     final extra = ids.length - used;
     if (extra > 0) {
       final spread = figureScale * 0.55 * (1 + math.sqrt(extra) / 7);
@@ -219,6 +221,7 @@ ConstellationSky computeConstellationSky(List<({String id, String tag})> items) 
         positions[ids[i]] =
             center + Offset(math.cos(ang) * r, math.sin(ang) * r);
         groupIndex[ids[i]] = gi;
+        lines.add((a: ids[i % used], b: ids[i]));
       }
     }
   }

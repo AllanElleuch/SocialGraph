@@ -58,6 +58,16 @@ void main() {
     );
   });
 
+  test('every member of a large group is linked (no lone satellites)', () {
+    final sky = computeConstellationSky(items({'Big': 30}));
+    final linked = <String>{};
+    for (final l in sky.lines) {
+      linked..add(l.a)..add(l.b);
+    }
+    // All 30 members appear in at least one line.
+    expect(linked.length, 30);
+  });
+
   test('figure lines connect real, same-group contacts', () {
     final sky = computeConstellationSky(items({'Work': 8, 'Family': 6}));
     expect(sky.lines, isNotEmpty);

@@ -1,9 +1,9 @@
-/// The tag automatically applied to device-imported contacts.
-///
-/// It is treated as metadata only: it never links or groups people (no
-/// constellation grouping, no shared-tag relationship line/label). It can still
-/// be searched and filtered like any other tag.
-const String kImportedTag = 'Imported';
+import '../models/contact.dart' show kImportedTag;
+
+/// Rules for which tags may link/group people. The [kImportedTag] (applied to
+/// device-imported contacts) is metadata only: it never links or groups people
+/// (no constellation grouping, no shared-tag relationship line/label), though
+/// it can still be searched and filtered like any other tag.
 
 bool _isImported(String tag) =>
     tag.trim().toLowerCase() == kImportedTag.toLowerCase();
