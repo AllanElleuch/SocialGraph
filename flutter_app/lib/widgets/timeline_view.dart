@@ -464,12 +464,19 @@ class _TimelineViewState extends State<TimelineView>
           children: [
             Icon(Icons.history, size: 11, color: color),
             const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
+            // Flexible + ellipsis so the badge shrinks rather than overflowing
+            // when the tile's name column is narrow.
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],

@@ -74,6 +74,12 @@ class _GraphViewState extends State<GraphView>
   GraphNode? _pressedNode;
   Offset? _lastFocalPoint;
 
+  /// Number of pointers currently down, and whether this gesture ever had two
+  /// or more at once (a pinch). Used to ignore the tap-like pointer-up that
+  /// ends a pinch so zooming never opens the tag editor.
+  int _activePointers = 0;
+  bool _gestureMultiTouch = false;
+
   /// Time and screen position of the last tap on empty space, used to detect a
   /// double-tap there (which zooms in toward the point).
   DateTime? _lastEmptyTapTime;
@@ -355,6 +361,8 @@ class _GraphViewState extends State<GraphView>
   }
 
   void _onPointerDown(PointerDownEvent event) {
+    _activePointers++;
+    if (_activePointers >= 2) _gestureMultiTouch = true;
     _lastFocalPoint = event.localPosition;
     final node = _hitTest(event.localPosition);
     _pressedNode = node;
@@ -389,24 +397,39 @@ class _GraphViewState extends State<GraphView>
 
   void _onPointerUp(PointerUpEvent event) {
     final start = _lastFocalPoint;
-    final movedLittle =
-        start == null || (event.localPosition - start).distance < 5;
+    // A pinch (any multi-touch) is never a tap — its final pointer-up can look
+    // like one because two fingers share _lastFocalPoint.
+    final isTap = !_gestureMultiTouch &&
+        (start == null || (event.localPosition - start).distance < 5);
 
     if (_draggedNode != null) {
-      if (movedLittle) widget.onSelectContact(_draggedNode!.data);
+      if (isTap) widget.onSelectContact(_draggedNode!.data);
       _draggedNode!.fx = null;
       _draggedNode!.fy = null;
       _draggedNode = null;
       _simulation?.setAlphaTarget(0);
-    } else if (_pressedNode != null && movedLittle) {
+    } else if (_pressedNode != null && isTap) {
       // A tap on a star (no pan) selects it.
       widget.onSelectContact(_pressedNode!.data);
-    } else if (movedLittle) {
-      // A tap on empty space — may be a double-tap on a tag label.
+    } else if (isTap) {
+      // A tap on empty space — may open a tag label/edge.
       _handleEmptyTap(event.localPosition);
     }
     _pressedNode = null;
     _lastFocalPoint = null;
+    _endPointer();
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _pressedNode = null;
+    _endPointer();
+  }
+
+  /// Accounts for a lifted/cancelled pointer; clears the multi-touch flag only
+  /// once every finger is up, so the gesture's final tap-like up is suppressed.
+  void _endPointer() {
+    if (_activePointers > 0) _activePointers--;
+    if (_activePointers == 0) _gestureMultiTouch = false;
   }
 
   /// Handles a tap on empty space (Mutuals view). If it lands on a tag edge or
@@ -577,6 +600,7 @@ class _GraphViewState extends State<GraphView>
           onPointerDown: _onPointerDown,
           onPointerMove: _onPointerMove,
           onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerCancel,
           child: InteractiveViewer(
             transformationController: _transformController,
             boundaryMargin: const EdgeInsets.all(double.infinity),
