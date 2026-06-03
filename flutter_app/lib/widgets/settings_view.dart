@@ -3,6 +3,8 @@ import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../painters/star_style.dart';
+
 /// Version of the bundled legal documents (privacy policy + terms of use).
 /// Keep this in sync with the `version:` front-matter in
 /// `assets/legal/*.md` and with the deployed Cloudflare Pages site.
@@ -57,6 +59,13 @@ class SettingsView extends StatelessWidget {
   /// user confirms. Null hides the entry (e.g. when signed out).
   final VoidCallback? onDeleteAccount;
 
+  /// Current constellation star-color mode (drives the Appearance toggle).
+  final StarColorMode starColorMode;
+
+  /// Called when the user switches the star-color mode. Null hides the
+  /// Appearance section.
+  final ValueChanged<StarColorMode>? onStarColorModeChanged;
+
   const SettingsView({
     super.key,
     this.onExportBackup,
@@ -67,6 +76,8 @@ class SettingsView extends StatelessWidget {
     this.isSignedIn = false,
     this.onDeleteAllContacts,
     this.onDeleteAccount,
+    this.starColorMode = StarColorMode.temperature,
+    this.onStarColorModeChanged,
   });
 
   /// Pushes the Settings page as a full-screen route.
@@ -80,6 +91,8 @@ class SettingsView extends StatelessWidget {
     bool isSignedIn = false,
     VoidCallback? onDeleteAllContacts,
     VoidCallback? onDeleteAccount,
+    StarColorMode starColorMode = StarColorMode.temperature,
+    ValueChanged<StarColorMode>? onStarColorModeChanged,
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -92,6 +105,8 @@ class SettingsView extends StatelessWidget {
           isSignedIn: isSignedIn,
           onDeleteAllContacts: onDeleteAllContacts,
           onDeleteAccount: onDeleteAccount,
+          starColorMode: starColorMode,
+          onStarColorModeChanged: onStarColorModeChanged,
         ),
       ),
     );
@@ -224,6 +239,13 @@ class SettingsView extends StatelessWidget {
                 onTap: onImportBackup!,
               ),
           ],
+          if (onStarColorModeChanged != null) ...[
+            const _SectionHeader('Appearance'),
+            _StarColorToggle(
+              initial: starColorMode,
+              onChanged: onStarColorModeChanged!,
+            ),
+          ],
           const _SectionHeader('Legal'),
           _SettingsTile(
             icon: Icons.privacy_tip_outlined,
@@ -335,6 +357,97 @@ class _SectionHeader extends StatelessWidget {
           fontWeight: FontWeight.w600,
           letterSpacing: 1.2,
         ),
+      ),
+    );
+  }
+}
+
+/// A segmented control letting the user pick how mutuals-view stars are tinted:
+/// by relationship temperature or by constellation. Holds its own selection so
+/// it updates instantly, and reports changes via [onChanged].
+class _StarColorToggle extends StatefulWidget {
+  final StarColorMode initial;
+  final ValueChanged<StarColorMode> onChanged;
+
+  const _StarColorToggle({required this.initial, required this.onChanged});
+
+  @override
+  State<_StarColorToggle> createState() => _StarColorToggleState();
+}
+
+class _StarColorToggleState extends State<_StarColorToggle> {
+  late StarColorMode _mode = widget.initial;
+
+  void _select(StarColorMode mode) {
+    if (_mode == mode) return;
+    setState(() => _mode = mode);
+    widget.onChanged(mode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'Star color in mutuals',
+              style: TextStyle(color: _Palette.textPrimary, fontSize: 14),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: _Palette.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                for (final mode in StarColorMode.values)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _select(mode),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _mode == mode
+                              ? _Palette.accent.withValues(alpha: 0.18)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _mode == mode
+                                ? _Palette.accent
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Text(
+                          starColorModeLabel(mode),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _mode == mode
+                                ? _Palette.textPrimary
+                                : _Palette.textMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, top: 8),
+            child: Text(
+              'Relationship = warmth of the tie; Constellation = group color.',
+              style: TextStyle(color: _Palette.textMuted, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }

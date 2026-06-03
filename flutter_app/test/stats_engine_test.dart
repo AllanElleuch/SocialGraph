@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:social_graph/models/contact.dart';
 import 'package:social_graph/stats/achievements.dart';
@@ -20,6 +22,7 @@ Contact _contact({
   int? reminderCadenceDays,
   ContactOrigin? origin,
   List<InteractionEvent> interactions = const [],
+  Uint8List? photoThumbnail,
 }) {
   final last = interactions.isEmpty
       ? null
@@ -39,6 +42,7 @@ Contact _contact({
     origin: origin,
     interactions: interactions,
     lastInteraction: last,
+    photoThumbnail: photoThumbnail,
   );
 }
 
@@ -191,6 +195,45 @@ void main() {
           s.achievements.firstWhere((a) => a.id == AchievementId.firstContact);
       expect(first.unlocked, isTrue);
       expect(s.streak.currentWeeks, greaterThanOrEqualTo(1));
+    });
+
+    test('bonusXp from claimed quests folds into the level standing', () {
+      final contacts = [_contact(id: 'a')];
+      final base = NetworkStats.from(contacts, now: _now);
+      final boosted = NetworkStats.from(contacts, now: _now, bonusXp: 300);
+
+      expect(boosted.level.xp, base.level.xp + 300);
+      expect(boosted.level.level, greaterThan(base.level.level));
+    });
+
+    test('picture-perfect badge unlocks only when every contact has a photo',
+        () {
+      final photo = Uint8List.fromList([1, 2, 3]);
+
+      AchievementStat badgeOf(List<Contact> contacts) =>
+          NetworkStats.from(contacts, now: _now)
+              .achievements
+              .firstWhere((a) => a.id == AchievementId.picturePerfect);
+
+      // Empty network: locked, not a trivial 0/0 unlock.
+      expect(badgeOf(const []).unlocked, isFalse);
+
+      // Some contacts missing a photo: locked, progress reflects the share.
+      final mixed = badgeOf([
+        _contact(id: 'a', photoThumbnail: photo),
+        _contact(id: 'b'),
+      ]);
+      expect(mixed.unlocked, isFalse);
+      expect(mixed.current, 1);
+      expect(mixed.target, 2);
+      expect(mixed.progressLabel, '1 / 2');
+
+      // Every contact has a photo: unlocked.
+      final all = badgeOf([
+        _contact(id: 'a', photoThumbnail: photo),
+        _contact(id: 'b', photoThumbnail: photo),
+      ]);
+      expect(all.unlocked, isTrue);
     });
 
     test('health reflects overdue cadence and surfaces most neglected', () {

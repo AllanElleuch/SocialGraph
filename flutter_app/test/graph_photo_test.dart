@@ -85,8 +85,7 @@ void main() {
     rendered.dispose();
   });
 
-  test('falls back to the indigo node circle when no photo is present',
-      () async {
+  test('renders a star core when no photo is present', () async {
     final painter = GraphPainter(
       nodes: [centerNode()],
       links: const [],
@@ -100,10 +99,13 @@ void main() {
     final data = (await rendered.toByteData(
       format: ui.ImageByteFormat.rawRgba,
     ))!;
-    final px = pixelAt(data, 50, 50, size.width.toInt());
+    final center = pixelAt(data, 50, 50, size.width.toInt());
+    final corner = pixelAt(data, 2, 2, size.width.toInt());
 
-    // Indigo (0xFF6366f1): blue clearly dominates red.
-    expect(px.b, greaterThan(px.r));
+    // A bright, opaque star core is drawn at the node center...
+    expect(center.a, greaterThan(200));
+    // ...while empty sky stays transparent.
+    expect(corner.a, lessThan(40));
 
     rendered.dispose();
   });

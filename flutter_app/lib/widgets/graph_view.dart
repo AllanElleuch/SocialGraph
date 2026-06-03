@@ -6,17 +6,28 @@ import '../models/contact.dart';
 import '../models/graph_node.dart';
 import '../services/force_simulation.dart';
 import '../painters/graph_painter.dart';
+import '../painters/star_style.dart';
+import '../painters/starfield_painter.dart';
 
 class GraphView extends StatefulWidget {
   final List<Contact> contacts;
   final PivotType pivot;
   final ValueChanged<Contact> onSelectContact;
 
+  /// How contact stars are tinted (relationship temperature vs constellation).
+  final StarColorMode starColorMode;
+
+  /// The currently-selected contact id; its constellation is illuminated while
+  /// the rest of the sky dims.
+  final String? selectedId;
+
   const GraphView({
     super.key,
     required this.contacts,
     required this.pivot,
     required this.onSelectContact,
+    this.starColorMode = StarColorMode.temperature,
+    this.selectedId,
   });
 
   @override
@@ -27,6 +38,10 @@ class _GraphViewState extends State<GraphView>
     with SingleTickerProviderStateMixin {
   late List<GraphNode> _nodes;
   late List<GraphLink> _links;
+
+  /// Constellation (connected-component) index per contact id, recomputed
+  /// whenever the graph is (re)built.
+  Map<String, int> _clusters = {};
   ForceSimulation? _simulation;
   late AnimationController _animController;
 
@@ -37,6 +52,12 @@ class _GraphViewState extends State<GraphView>
   Offset? _lastFocalPoint;
 
   bool _graphBuilt = false;
+
+  /// While true, the view keeps the current node set framed and centered as the
+  /// layout settles (so a filter snaps to an overview of the cluster). Turns off
+  /// as soon as the user pans/zooms or grabs a node, and back on when the filter
+  /// changes (a fresh [_buildGraph]).
+  bool _autoFit = true;
 
   /// Decoded contact thumbnails, keyed by contact id, drawn inside their graph
   /// node. Populated asynchronously; nodes show a colored circle until ready.
@@ -116,6 +137,8 @@ class _GraphViewState extends State<GraphView>
       }
     }
 
+    _clusters = assignClusters(_nodes.map((n) => n.id).toList(), _links);
+
     _simulation = ForceSimulation(
       nodes: _nodes,
       links: _links,
@@ -126,8 +149,54 @@ class _GraphViewState extends State<GraphView>
       centerY: cy,
     );
 
+    // A new node set (e.g. a filter change) snaps back to an overview centered
+    // on the cluster; auto-fit then tracks the layout until the user interacts.
+    _autoFit = true;
+    _fitToNodes();
     _decodePhotos();
     _animController.repeat();
+  }
+
+  /// Frames all current nodes centered in the visible band (between the header
+  /// and the bottom controls) at a scale that fits the whole cluster, so the
+  /// user always starts from an overview they can zoom into. No-op when there
+  /// are no nodes.
+  void _fitToNodes() {
+    if (_nodes.isEmpty || !mounted) return;
+    final size = MediaQuery.of(context).size;
+
+    var minX = _nodes.first.x, maxX = _nodes.first.x;
+    var minY = _nodes.first.y, maxY = _nodes.first.y;
+    for (final n in _nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+
+    // Pad the bounds so stars (and their glow) aren't flush to the edges.
+    const nodePad = 48.0;
+    final bboxW = (maxX - minX) + nodePad * 2;
+    final bboxH = (maxY - minY) + nodePad * 2;
+    final cx = (minX + maxX) / 2;
+    final cy = (minY + maxY) / 2;
+
+    // Leave room for the floating header (top) and controls/legend (bottom).
+    const topInset = 120.0, bottomInset = 150.0, sideInset = 28.0;
+    final availW = (size.width - sideInset * 2).clamp(50.0, double.infinity);
+    final availH =
+        (size.height - topInset - bottomInset).clamp(50.0, double.infinity);
+
+    // Fit the whole cluster; clamp so a tiny set isn't zoomed in absurdly.
+    final scale = min(availW / bboxW, availH / bboxH).clamp(0.1, 1.6);
+    final target = Offset(size.width / 2, topInset + availH / 2);
+
+    // M = translate(target) · scale · translate(-center): maps the cluster
+    // center to the visible band's center at the fitted scale.
+    _transformController.value =
+        Matrix4.translationValues(target.dx, target.dy, 0) *
+            Matrix4.diagonal3Values(scale, scale, 1) *
+            Matrix4.translationValues(-cx, -cy, 0);
   }
 
   /// Decodes thumbnails for any photo contacts not already cached or in flight,
@@ -178,9 +247,10 @@ class _GraphViewState extends State<GraphView>
   void _onTick() {
     if (_simulation != null && _simulation!.isActive) {
       _simulation!.tick();
+      // Keep the cluster framed as the layout expands, until the user takes
+      // over with a pan/zoom or a node drag.
+      if (_autoFit) _fitToNodes();
       setState(() {});
-    } else {
-      // Keep ticking at reduced rate for drag interactions
     }
   }
 
@@ -207,6 +277,8 @@ class _GraphViewState extends State<GraphView>
     final node = _hitTest(event.localPosition);
     if (node != null) {
       _draggedNode = node;
+      // Grabbing a node is manual control; stop auto-framing the view.
+      _autoFit = false;
       node.fx = node.x;
       node.fy = node.y;
       _simulation?.setAlphaTarget(0.3);
@@ -272,28 +344,46 @@ class _GraphViewState extends State<GraphView>
     final minTime = times.isEmpty ? 0.0 : times.reduce(min);
     final maxTime = times.isEmpty ? 0.0 : times.reduce(max);
 
-    return Listener(
-      onPointerDown: _onPointerDown,
-      onPointerMove: _onPointerMove,
-      onPointerUp: _onPointerUp,
-      child: InteractiveViewer(
-        transformationController: _transformController,
-        boundaryMargin: const EdgeInsets.all(double.infinity),
-        minScale: 0.1,
-        maxScale: 8.0,
-        panEnabled: _draggedNode == null,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: GraphPainter(
-            nodes: _nodes,
-            links: _links,
-            pivot: widget.pivot,
-            minTime: minTime,
-            maxTime: maxTime,
-            photos: _photos,
+    return Stack(
+      children: [
+        // Fixed deep-space backdrop (not transformed by the viewer).
+        Positioned.fill(
+          child: CustomPaint(
+            painter: StarfieldPainter(twinkle: _animController),
           ),
         ),
-      ),
+        Listener(
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          child: InteractiveViewer(
+            transformationController: _transformController,
+            boundaryMargin: const EdgeInsets.all(double.infinity),
+            minScale: 0.1,
+            maxScale: 8.0,
+            panEnabled: _draggedNode == null,
+            // A real pan/zoom hands control to the user; stop auto-framing so we
+            // never fight their gesture.
+            onInteractionUpdate: (_) => _autoFit = false,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: GraphPainter(
+                nodes: _nodes,
+                links: _links,
+                pivot: widget.pivot,
+                minTime: minTime,
+                maxTime: maxTime,
+                photos: _photos,
+                clusters: _clusters,
+                starColorMode: widget.starColorMode,
+                selectedId: widget.selectedId,
+                viewTransform: _transformController,
+                twinkle: _animController,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

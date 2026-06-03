@@ -21,6 +21,7 @@ enum AchievementId {
   reconnector,
   wellTended,
   birthdayKnower,
+  picturePerfect,
 }
 
 /// Progress toward a single badge.

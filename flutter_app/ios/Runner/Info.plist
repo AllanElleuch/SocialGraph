@@ -9,6 +9,10 @@
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>Social Graph needs access to your contacts so you can import them into your network.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Social Graph reads your calendar to automatically log meetings with your contacts as interactions.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Social Graph reads your calendar to automatically log meetings with your contacts as interactions.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Social Graph uses your location to place you and your contacts on the map and show who is nearby.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

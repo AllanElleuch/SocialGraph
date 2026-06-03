@@ -15,7 +15,11 @@ import 'services/reach_out_service.dart';
 import 'services/auth_service.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/cloud_backup_service.dart';
+import 'services/app_preferences.dart';
+import 'painters/star_style.dart';
 import 'services/call_log_sync_service.dart';
+import 'services/calendar_sync_service.dart';
+import 'services/outbound_prompt.dart';
 import 'services/notification_service.dart';
 import 'services/firebase_bootstrap.dart';
 import 'widgets/graph_view.dart';
@@ -65,7 +69,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final ContactsImportService _importService = ContactsImportService();
   final ContactRepository _repository = ContactRepository();
   final AuthService _auth = AuthService();
@@ -73,7 +77,13 @@ class _HomePageState extends State<HomePage> {
   final CloudBackupService _cloudBackup = CloudBackupService();
   final NotificationService _notifications = NotificationService();
   final CallLogSyncService _callLog = CallLogSyncService();
+  final CalendarSyncService _calendar = CalendarSyncService();
+  final AppPreferences _prefs = AppPreferences();
   List<Contact> _contacts = [];
+
+  /// How contact stars are tinted in the mutuals constellation; loaded from
+  /// prefs on startup and changeable in Settings.
+  StarColorMode _starColorMode = StarColorMode.temperature;
 
   bool get _cloudEnabled => firebaseReady;
   bool get _signedIn => _cloudEnabled && _auth.isSignedIn;
@@ -85,10 +95,90 @@ class _HomePageState extends State<HomePage> {
   bool _showForm = false;
   Contact? _editingContact;
 
+  /// An outbound call/text/email the user just launched from a card, awaiting
+  /// confirmation when they return to the app. Null when nothing is pending.
+  PendingOutbound? _pendingOutbound;
+
+  /// Whether the app has been backgrounded since [_pendingOutbound] was set —
+  /// distinguishes "left for the dialer and came back" from staying in-app.
+  bool _wentBackground = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadStarColorMode();
     _loadContacts();
+  }
+
+  Future<void> _loadStarColorMode() async {
+    final mode = await _prefs.loadStarColorMode();
+    if (mounted) setState(() => _starColorMode = mode);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      if (_pendingOutbound != null) _wentBackground = true;
+    } else if (state == AppLifecycleState.resumed) {
+      _maybeConfirmOutbound();
+    }
+  }
+
+  /// On return from an external app (dialer/Mail/Messages), confirm the
+  /// optimistically-logged interaction and offer a one-tap "Remove" if it
+  /// didn't actually happen.
+  void _maybeConfirmOutbound() {
+    final pending = _pendingOutbound;
+    if (pending == null) return;
+    final shouldPrompt = shouldConfirmOnResume(
+      pending,
+      wentBackground: _wentBackground,
+      now: DateTime.now(),
+    );
+    _pendingOutbound = null;
+    _wentBackground = false;
+    if (!shouldPrompt || !mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(confirmLabel(pending)),
+        action: SnackBarAction(
+          label: 'Remove',
+          onPressed: () =>
+              _removeInteraction(pending.contactId, pending.eventId),
+        ),
+      ));
+  }
+
+  /// Removes a single logged interaction (used to undo an outbound action that
+  /// didn't connect). Recomputes [Contact.lastInteraction] from what remains.
+  void _removeInteraction(String contactId, String eventId) {
+    final idx = _contacts.indexWhere((c) => c.id == contactId);
+    if (idx < 0) return;
+    final c = _contacts[idx];
+    final remaining =
+        c.interactions.where((e) => e.id != eventId).toList(growable: false);
+    if (remaining.length == c.interactions.length) return; // nothing removed
+    DateTime? newLast;
+    for (final e in remaining) {
+      if (newLast == null || e.date.isAfter(newLast)) newLast = e.date;
+    }
+    final updated =
+        c.copyWith(interactions: remaining, lastInteraction: newLast);
+    setState(() {
+      _contacts = [..._contacts]..[idx] = updated;
+      if (_selectedContact?.id == contactId) _selectedContact = updated;
+    });
+    unawaited(_persist());
   }
 
   /// Local-first load: render the cached list immediately, then reconcile with
@@ -102,6 +192,7 @@ class _HomePageState extends State<HomePage> {
       });
     }
     await _syncCallLog();
+    await _syncCalendar();
     await _syncWithCloud();
     await _notifyOverdue();
   }
@@ -113,6 +204,22 @@ class _HomePageState extends State<HomePage> {
   Future<void> _syncCallLog() async {
     if (!_callLog.isSupported) return;
     final updated = await _callLog.sync(_contacts);
+    if (!identical(updated, _contacts)) {
+      if (mounted) setState(() => _contacts = updated);
+      await _repository.save(_contacts);
+    }
+  }
+
+  /// Folds attended device-calendar meetings (iOS/Android) into the contact
+  /// list as `meeting` interactions. No-op on web/macOS. The signed-in user's
+  /// own address is excluded so we never log a meeting "with yourself".
+  Future<void> _syncCalendar() async {
+    if (!_calendar.isSupported) return;
+    final selfEmail = _signedIn ? _auth.currentUser?.email : null;
+    final updated = await _calendar.sync(
+      _contacts,
+      selfEmails: {if (selfEmail != null) selfEmail},
+    );
     if (!identical(updated, _contacts)) {
       if (mounted) setState(() => _contacts = updated);
       await _repository.save(_contacts);
@@ -186,6 +293,18 @@ class _HomePageState extends State<HomePage> {
       if (idx >= 0) _contacts = [..._contacts]..[idx] = updated;
       _selectedContact = updated;
     });
+    // Outbound actions open an external app; arm a confirm/undo prompt for when
+    // the user returns. Manual notes/meetings stay silent.
+    if (isOutboundType(event.type)) {
+      _pendingOutbound = PendingOutbound(
+        contactId: updated.id,
+        contactName: updated.displayName,
+        eventId: event.id,
+        type: event.type,
+        launchedAt: event.date,
+      );
+      _wentBackground = false;
+    }
     unawaited(_persist());
   }
 
@@ -234,7 +353,16 @@ class _HomePageState extends State<HomePage> {
       isSignedIn: _signedIn,
       onDeleteAllContacts: () => _deleteAllContacts(),
       onDeleteAccount: _signedIn ? () => _deleteAccount() : null,
+      starColorMode: _starColorMode,
+      onStarColorModeChanged: _setStarColorMode,
     );
+  }
+
+  /// Updates the constellation star-color mode and persists the choice so the
+  /// mutuals view honors it on next launch.
+  void _setStarColorMode(StarColorMode mode) {
+    setState(() => _starColorMode = mode);
+    unawaited(_prefs.saveStarColorMode(mode));
   }
 
   /// Removes every contact from the device, and from the cloud sync copy when
@@ -560,6 +688,8 @@ class _HomePageState extends State<HomePage> {
               contacts: _filteredContacts,
               pivot: _pivot,
               onSelectContact: (c) => setState(() => _selectedContact = c),
+              starColorMode: _starColorMode,
+              selectedId: _selectedContact?.id,
             ),
 
           // Legend — annotates the active view, so it sits just above the

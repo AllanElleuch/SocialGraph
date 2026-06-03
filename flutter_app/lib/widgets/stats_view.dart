@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/contact.dart';
 import '../painters/stats_painters.dart';
+import '../services/quest_store.dart';
 import '../stats/achievements.dart';
 import '../stats/network_stats.dart';
+import '../stats/quests.dart';
 import '../stats/streaks.dart';
 
 /// Dark-theme palette for the Stats surface, matching the rest of the app.
@@ -26,23 +28,72 @@ class _P {
 /// Pure/testable: the caller injects [now]; this widget never reads the system
 /// clock. All numbers come from [NetworkStats.from], derived entirely from
 /// [contacts]. Tapping a contact-referencing stat calls [onSelectContact].
-class StatsView extends StatelessWidget {
+class StatsView extends StatefulWidget {
   final List<Contact> contacts;
   final DateTime now;
   final void Function(Contact) onSelectContact;
+
+  /// Ledger for claimed weekly-quest rewards. Injectable for tests; defaults to
+  /// the [SharedPreferences]-backed store in the running app.
+  final QuestStore? questStore;
 
   const StatsView({
     super.key,
     required this.contacts,
     required this.now,
     required this.onSelectContact,
+    this.questStore,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final stats = NetworkStats.from(contacts, now: now);
+  State<StatsView> createState() => _StatsViewState();
+}
 
-    if (contacts.isEmpty) {
+class _StatsViewState extends State<StatsView> {
+  late final QuestStore _questStore = widget.questStore ?? QuestStore();
+
+  /// Claimed-quest ledger `{ questKey: xp }`, loaded once and updated on claim.
+  Map<String, int> _claimed = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLedger();
+  }
+
+  Future<void> _loadLedger() async {
+    final ledger = await _questStore.load();
+    if (mounted) setState(() => _claimed = ledger);
+  }
+
+  Future<void> _claim(WeeklyQuest quest) async {
+    final ledger = await _questStore.claim(quest.key, quest.xpReward);
+    if (!mounted) return;
+    setState(() => _claimed = ledger);
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('Quest complete! ${quest.rewardLabel}'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bonusXp = QuestStore.totalXp(_claimed);
+    final stats = NetworkStats.from(
+      widget.contacts,
+      now: widget.now,
+      bonusXp: bonusXp,
+    );
+    final quests = WeeklyQuests.from(
+      widget.contacts,
+      now: widget.now,
+      claimedKeys: _claimed.keys.toSet(),
+    );
+
+    if (widget.contacts.isEmpty) {
       return const _EmptyState();
     }
 
@@ -56,9 +107,14 @@ class StatsView extends StatelessWidget {
           const SizedBox(height: 16),
           _HeroCard(stats: stats),
           const SizedBox(height: 12),
+          _QuestsCard(quests: quests, now: widget.now, onClaim: _claim),
+          const SizedBox(height: 12),
           _StreakCard(streak: stats.streak),
           const SizedBox(height: 12),
-          _HealthCard(health: stats.health, onSelectContact: onSelectContact),
+          _HealthCard(
+            health: stats.health,
+            onSelectContact: widget.onSelectContact,
+          ),
           const SizedBox(height: 12),
           _BadgesCard(
             achievements: stats.achievements,
@@ -69,7 +125,7 @@ class StatsView extends StatelessWidget {
           const SizedBox(height: 12),
           _InteractionsCard(
             stats: stats.interactions,
-            onSelectContact: onSelectContact,
+            onSelectContact: widget.onSelectContact,
           ),
           const SizedBox(height: 12),
           _GeographyCard(geo: stats.geography),
@@ -613,6 +669,252 @@ class _TappableRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Weekly quests
+// ─────────────────────────────────────────────────────────────────────────
+
+class _QuestsCard extends StatelessWidget {
+  final WeeklyQuests quests;
+  final DateTime now;
+  final Future<void> Function(WeeklyQuest) onClaim;
+
+  const _QuestsCard({
+    required this.quests,
+    required this.now,
+    required this.onClaim,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      title: 'Weekly quests',
+      icon: Icons.assignment_turned_in_outlined,
+      iconColor: _P.green,
+      trailing: _Pill(quests.summaryLabel, color: _P.green),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < quests.quests.length; i++) ...[
+            if (i > 0) const SizedBox(height: 12),
+            _QuestRow(quest: quests.quests[i], onClaim: onClaim),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.schedule, size: 13, color: _P.muted),
+              const SizedBox(width: 6),
+              Text(
+                quests.resetLabel(now),
+                style: const TextStyle(color: _P.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuestRow extends StatelessWidget {
+  final WeeklyQuest quest;
+  final Future<void> Function(WeeklyQuest) onClaim;
+
+  const _QuestRow({required this.quest, required this.onClaim});
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _questMeta[quest.id]!;
+    final claimed = quest.claimed;
+    final ready = quest.isReadyToClaim;
+    final accent = claimed
+        ? _P.muted
+        : ready
+            ? _P.green
+            : _P.accent;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          claimed ? Icons.check_circle : meta.icon,
+          size: 22,
+          color: accent,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      meta.title,
+                      style: TextStyle(
+                        color: claimed ? _P.muted : _P.text,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        decoration:
+                            claimed ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    quest.rewardLabel,
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                meta.description,
+                style: const TextStyle(color: _P.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              if (ready)
+                _ClaimButton(onPressed: () => onClaim(quest))
+              else if (claimed)
+                const Text(
+                  'Claimed',
+                  style: TextStyle(
+                    color: _P.green,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(100),
+                        child: LinearProgressIndicator(
+                          value: quest.progress,
+                          minHeight: 7,
+                          backgroundColor: _P.faint,
+                          valueColor:
+                              const AlwaysStoppedAnimation<Color>(_P.accent),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      quest.progressLabel,
+                      style: const TextStyle(
+                        color: _P.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClaimButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  const _ClaimButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 30,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.redeem, size: 15),
+        label: const Text('Claim reward'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _P.green,
+          foregroundColor: const Color(0xFF06281D),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          textStyle:
+              const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Presentation metadata for a quest (icon + copy live in the view, not the
+/// pure engine).
+class _QuestMeta {
+  final IconData icon;
+  final String title;
+  final String description;
+  const _QuestMeta(this.icon, this.title, this.description);
+}
+
+const Map<QuestId, _QuestMeta> _questMeta = {
+  QuestId.touchBase: _QuestMeta(
+    Icons.waving_hand_outlined,
+    'Touch base',
+    'Log 3 interactions this week',
+  ),
+  QuestId.busyBee: _QuestMeta(
+    Icons.bolt,
+    'Busy bee',
+    'Log 6 interactions this week',
+  ),
+  QuestId.newFace: _QuestMeta(
+    Icons.person_add_alt,
+    'New face',
+    'Add a new contact this week',
+  ),
+  QuestId.growthSpurt: _QuestMeta(
+    Icons.group_add_outlined,
+    'Growth spurt',
+    'Add 2 new contacts this week',
+  ),
+  QuestId.ringRing: _QuestMeta(
+    Icons.call_outlined,
+    'Ring ring',
+    'Make 2 calls this week',
+  ),
+  QuestId.penPal: _QuestMeta(
+    Icons.sms_outlined,
+    'Pen pal',
+    'Send 3 texts this week',
+  ),
+  QuestId.faceToFace: _QuestMeta(
+    Icons.coffee_outlined,
+    'Face to face',
+    'Have 1 in-person meeting this week',
+  ),
+  QuestId.inbox: _QuestMeta(
+    Icons.mail_outline,
+    'Inbox hero',
+    'Log 2 emails this week',
+  ),
+  QuestId.socialButterfly: _QuestMeta(
+    Icons.diversity_3,
+    'Social butterfly',
+    'Reach out to 4 different people',
+  ),
+  QuestId.rekindle: _QuestMeta(
+    Icons.local_fire_department_outlined,
+    'Rekindle',
+    'Revive a dormant relationship',
+  ),
+  QuestId.mixItUp: _QuestMeta(
+    Icons.shuffle,
+    'Mix it up',
+    'Use 3 different interaction types',
+  ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────
 // Badges
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -760,6 +1062,11 @@ const Map<AchievementId, _BadgeMeta> _badgeMeta = {
     Icons.cake_outlined,
     'Cake Boss',
     'Know 10 birthdays',
+  ),
+  AchievementId.picturePerfect: _BadgeMeta(
+    Icons.photo_camera_front_outlined,
+    'Picture Perfect',
+    'A photo for every contact',
   ),
 };
 

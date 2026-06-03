@@ -38,7 +38,15 @@ class NetworkStats {
       '$unlockedBadgeCount / ${achievements.length} badges';
 
   /// Builds the full snapshot from [contacts] as of [now].
-  factory NetworkStats.from(List<Contact> contacts, {required DateTime now}) {
+  ///
+  /// [bonusXp] is extra XP earned outside the contact graph — currently the sum
+  /// of claimed weekly-quest rewards — folded into the level/XP standing so the
+  /// Stats tab shows one unified progression.
+  factory NetworkStats.from(
+    List<Contact> contacts, {
+    required DateTime now,
+    int bonusXp = 0,
+  }) {
     // --- gather raw interaction timeline across the whole network ---
     final allInteractionDates = <DateTime>[];
     var totalInteractions = 0;
@@ -70,7 +78,8 @@ class NetworkStats {
       interactionCount: totalInteractions,
       connectionCount: totalConnections,
       reconnectCount: totalReconnects,
-    );
+    ) +
+        bonusXp;
 
     final growth = GrowthStats.from(contacts, now: now);
     final interactions = InteractionStats.from(
@@ -86,6 +95,7 @@ class NetworkStats {
         .where((c) => strengthScore(c, now: now) >= 66)
         .length;
     final birthdayCount = contacts.where((c) => c.birthday != null).length;
+    final photoCount = contacts.where((c) => c.hasPhoto).length;
 
     final achievements = <AchievementStat>[
       AchievementStat(
@@ -147,6 +157,14 @@ class NetworkStats {
         id: AchievementId.birthdayKnower,
         current: birthdayCount,
         target: 10,
+      ),
+      // "Picture Perfect": every contact has a photo. Target tracks the live
+      // contact count so adding a photoless contact re-locks it; an empty
+      // network keeps it locked (target 1) instead of trivially unlocking.
+      AchievementStat(
+        id: AchievementId.picturePerfect,
+        current: photoCount,
+        target: contacts.isEmpty ? 1 : contacts.length,
       ),
     ];
 

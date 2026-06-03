@@ -52,6 +52,9 @@ dependencies:
   # iOS exposes no call-history API, so usage is guarded behind a platform check.
   call_log: ^5.0.0
   permission_handler: ^11.3.1
+  # iOS/Android: read device calendar events to auto-log meetings as
+  # interactions (the iOS analogue of call_log, which iOS does not expose).
+  device_calendar: ^4.3.3
 
 dev_dependencies:
   flutter_test:
