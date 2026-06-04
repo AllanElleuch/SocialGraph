@@ -142,8 +142,16 @@ for (const doc of DOCS) {
   console.log(`built ${doc.out}${ver}`);
 }
 
+const indexBody = `<h1>Contextual Contacts</h1>
+<p>Contextual Contacts turns your address book into a living map of the people in your life, with gentle reach-out reminders so you never lose touch.</p>
+<h2>Support</h2>
+<p>Need help or have a question? Email us at
+<a href="mailto:contact@codelio.fr">contact@codelio.fr</a> and we'll get back to you.</p>
+<h2>Legal</h2>
+<ul>${indexLinks}</ul>`;
+
 writeFileSync(
   join(outDir, 'index.html'),
-  page('Legal', `<h1>Contextual Contacts — Legal</h1><ul>${indexLinks}</ul>`, nav),
+  page('Support & Legal', indexBody, nav),
 );
 console.log(`built index.html → ${outDir}`);
