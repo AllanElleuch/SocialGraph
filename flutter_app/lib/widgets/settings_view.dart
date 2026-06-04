@@ -16,9 +16,9 @@ const String legalDocsEffective = '2 June 2026';
 
 /// Public, hosted copies of the legal documents (Cloudflare Pages).
 const String privacyPolicyUrl =
-    'https://codelio-legal.pages.dev/privacy-policy.html';
+    'https://socialgraph.codelio-legal.pages.dev/privacy-policy.html';
 const String termsOfUseUrl =
-    'https://codelio-legal.pages.dev/terms-of-use.html';
+    'https://socialgraph.codelio-legal.pages.dev/terms-of-use.html';
 
 /// Support / privacy contact address.
 const String supportEmail = 'contact@codelio.fr';

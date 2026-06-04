@@ -44,7 +44,7 @@ The project's public-facing static content is hosted on **Cloudflare Pages**.
 
 | Resource | Cloudflare service | Project → URL |
 | --- | --- | --- |
-| Public legal site (Privacy Policy & Terms of Use) | Pages | `codelio-legal` → https://codelio-legal.pages.dev |
+| Public legal site (Privacy Policy & Terms of Use) | Pages | `codelio-legal` (branch `socialgraph`) → https://socialgraph.codelio-legal.pages.dev |
 
 The site is generated from the **same** Markdown the Flutter app bundles, so the
 in-app and web copies never drift. Build and deploy with the Wrangler CLI:
@@ -104,15 +104,19 @@ site:
 # Generate legal/dist/{index,privacy-policy,terms-of-use}.html from the Markdown
 node legal/build.mjs
 
-# Deploy to Cloudflare Pages (project: codelio-legal)
-npx wrangler pages deploy legal/dist --project-name codelio-legal
+# Deploy to Cloudflare Pages (project: codelio-legal, branch alias: socialgraph)
+npx wrangler pages deploy legal/dist --project-name codelio-legal --branch socialgraph
 ```
 
 This publishes:
 
-- `https://codelio-legal.pages.dev/privacy-policy.html`
-- `https://codelio-legal.pages.dev/terms-of-use.html`
+- `https://socialgraph.codelio-legal.pages.dev/privacy-policy.html`
+- `https://socialgraph.codelio-legal.pages.dev/terms-of-use.html`
 
+> The `--branch socialgraph` flag gives the SocialGraph-specific subdomain
+> `socialgraph.codelio-legal.pages.dev` (a stable branch alias of the shared
+> `codelio-legal` project).
+>
 > First-time setup: run `npx wrangler login`, then create the Pages project
 > once with `npx wrangler pages project create codelio-legal`. The generated
 > `legal/dist/` directory is build output and does not need to be committed.
