@@ -188,16 +188,23 @@ List<Offset> _archimedean(int n, double s) {
 
 List<Offset> _galaxy(int n, double s, math.Random rng) {
   final arms = 2 + rng.nextInt(3); // 2..4 arms
-  final swirl = 0.12 + rng.nextDouble() * 0.10;
-  return [
-    for (var k = 0; k < n; k++)
-      Offset.fromDirection(
-        (k % arms) * 2 * math.pi / arms +
-            swirl * math.sqrt(k.toDouble()) +
-            (rng.nextDouble() - 0.5) * 0.25,
-        s * math.sqrt(k + 1.0),
-      ),
-  ];
+  final perArm = (n / arms).ceil();
+  // Each arm is an Archimedean spiral with turn spacing s*arms, so interleaving
+  // `arms` of them leaves an even ~s gap between adjacent arms — and stepping ~s
+  // of arc length along each arm keeps neighbours ~s apart. Uniform spacing ⇒
+  // no overlap (same density as the sunflower disc).
+  final a = s * arms / (2 * math.pi);
+  final out = <Offset>[];
+  for (var arm = 0; arm < arms && out.length < n; arm++) {
+    final armAngle = arm * 2 * math.pi / arms;
+    var theta = 2 * math.pi; // start a turn out so the core isn't crowded
+    for (var j = 0; j < perArm && out.length < n; j++) {
+      final r = a * theta;
+      out.add(Offset.fromDirection(armAngle + theta, r));
+      theta += s / math.max(r, s); // ≈ constant arc-length step
+    }
+  }
+  return out;
 }
 
 List<Offset> _randomDisc(int n, double s, math.Random rng) {
