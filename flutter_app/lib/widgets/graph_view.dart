@@ -12,6 +12,7 @@ import '../painters/graph_painter.dart';
 import '../painters/star_style.dart';
 import '../painters/starfield_painter.dart';
 import '../painters/constellation_layout.dart';
+import '../painters/cluster_layouts.dart';
 
 class GraphView extends StatefulWidget {
   final List<Contact> contacts;
@@ -29,6 +30,15 @@ class GraphView extends StatefulWidget {
   /// the rest of the sky dims.
   final String? selectedId;
 
+  /// Per-session seed driving per-run layout variety (stable within a run).
+  final int runSeed;
+
+  /// Whether to render constellations with per-run varied layouts.
+  final bool randomizeLayouts;
+
+  /// User-chosen layout per cluster tag (overrides the per-run/default choice).
+  final Map<String, ClusterLayout> layoutOverrides;
+
   const GraphView({
     super.key,
     required this.contacts,
@@ -37,6 +47,9 @@ class GraphView extends StatefulWidget {
     this.onOpenTag,
     this.starColorMode = StarColorMode.temperature,
     this.selectedId,
+    this.runSeed = 0,
+    this.randomizeLayouts = false,
+    this.layoutOverrides = const {},
   });
 
   @override
@@ -134,7 +147,10 @@ class _GraphViewState extends State<GraphView>
   void didUpdateWidget(GraphView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.contacts != widget.contacts ||
-        oldWidget.pivot != widget.pivot) {
+        oldWidget.pivot != widget.pivot ||
+        oldWidget.runSeed != widget.runSeed ||
+        oldWidget.randomizeLayouts != widget.randomizeLayouts ||
+        !identical(oldWidget.layoutOverrides, widget.layoutOverrides)) {
       _buildGraph();
     }
   }
@@ -164,7 +180,12 @@ class _GraphViewState extends State<GraphView>
     final items = widget.contacts
         .map((c) => (id: c.id, tag: primaryLinkingTag(c.tags)))
         .toList();
-    final sky = computeConstellationSky(items);
+    final sky = computeConstellationSky(
+      items,
+      runSeed: widget.runSeed,
+      randomizeLayouts: widget.randomizeLayouts,
+      layoutOverrides: widget.layoutOverrides,
+    );
 
     _nodes = widget.contacts.map((c) {
       final p = sky.positions[c.id] ?? Offset.zero;

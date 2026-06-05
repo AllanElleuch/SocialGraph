@@ -55,6 +55,8 @@ dependencies:
   # iOS/Android: read device calendar events to auto-log meetings as
   # interactions (the iOS analogue of call_log, which iOS does not expose).
   device_calendar: ^4.3.3
+  # Pick a contact photo from the camera or photo library.
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

@@ -9,6 +9,10 @@
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>Social Graph needs access to your contacts so you can import them into your network.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Social Graph needs access to your photos so you can set a picture for a contact.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Social Graph needs access to your camera so you can take a picture for a contact.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Social Graph reads your calendar to automatically log meetings with your contacts as interactions.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>

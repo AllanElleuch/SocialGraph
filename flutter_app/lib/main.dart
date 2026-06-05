@@ -23,6 +23,7 @@ import 'services/cloud_sync_service.dart';
 import 'services/cloud_backup_service.dart';
 import 'services/app_preferences.dart';
 import 'painters/star_style.dart';
+import 'painters/cluster_layouts.dart';
 import 'services/call_log_sync_service.dart';
 import 'services/calendar_sync_service.dart';
 import 'services/outbound_prompt.dart';
@@ -97,6 +98,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// prefs on startup and changeable in Settings.
   StarColorMode _starColorMode = StarColorMode.temperature;
 
+  /// Per-session seed so each app launch picks fresh constellation layouts
+  /// (stable within the run).
+  final int _runSeed = DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
+
+  /// User-chosen rendering per cluster tag (overrides the per-run choice).
+  /// A fresh map instance is assigned on change so GraphView rebuilds.
+  Map<String, ClusterLayout> _layoutOverrides = const {};
+
+  /// Transient slider value while the user is dragging the focused cluster's
+  /// rendering slider (so the label previews without rebuilding the graph each
+  /// tick). Null when not dragging.
+  double? _renderSliderValue;
+
   bool get _cloudEnabled => firebaseReady;
   bool get _signedIn => _cloudEnabled && _auth.isSignedIn;
   PivotType _pivot = PivotType.mutual;
@@ -124,12 +138,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadStarColorMode();
+    _loadLayoutOverrides();
     _loadContacts();
   }
 
   Future<void> _loadStarColorMode() async {
     final mode = await _prefs.loadStarColorMode();
     if (mounted) setState(() => _starColorMode = mode);
+  }
+
+  Future<void> _loadLayoutOverrides() async {
+    final overrides = await _prefs.loadLayoutOverrides();
+    if (mounted && overrides.isNotEmpty) {
+      setState(() => _layoutOverrides = overrides);
+    }
   }
 
   @override
@@ -857,6 +879,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               onOpenTag: _openTagDetail,
               starColorMode: _starColorMode,
               selectedId: _selectedContact?.id,
+              runSeed: _runSeed,
+              randomizeLayouts: kRandomizeConstellationLayouts,
+              layoutOverrides: _layoutOverrides,
             ),
 
           // Legend — annotates the active view, so it sits just above the
@@ -873,6 +898,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onAddContact: _openAddForm,
             onOpenSettings: _openSettings,
           ),
+
+          // Rendering slider for the focused cluster (Mutuals only).
+          _buildClusterRenderingSlider(),
 
           // Contact Card
           ContactCard(
@@ -989,17 +1017,204 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _openClusterList() {
+    final summaries = clusterSummaries(_contacts);
+    final effective = {
+      for (final s in summaries)
+        s.tag: effectiveClusterLayout(
+          tag: s.tag,
+          isOrphans: s.isOrphans,
+          overrides: _layoutOverrides,
+          randomize: kRandomizeConstellationLayouts,
+          runSeed: _runSeed,
+        ),
+    };
     return ClusterListSheet.show(
       context,
-      clusters: clusterSummaries(_contacts),
+      clusters: summaries,
+      effectiveLayouts: effective,
       onSelect: (c) {
         setState(() {
+          _renderSliderValue = null;
           _filter = c.isOrphans
               ? const ContactFilter(untaggedOnly: true)
               : ContactFilter(tags: {c.tag});
         });
       },
+      onPickLayout: _setClusterLayout,
     );
+  }
+
+  /// The single cluster currently focused in Mutuals (via tapping it in the
+  /// Constellations list), or null when the filter isn't narrowed to exactly
+  /// one cluster. 'Orphans' for the untagged group.
+  String? get _focusedClusterTag {
+    if (_pivot != PivotType.mutual) return null;
+    final f = _filter;
+    final onlyOrphans = f.untaggedOnly &&
+        f.tags.isEmpty &&
+        !f.familyOnly &&
+        !f.withPhotoOnly &&
+        !f.needsAttentionOnly &&
+        !f.strongOnly;
+    if (onlyOrphans) return 'Orphans';
+    final onlyOneTag = f.tags.length == 1 &&
+        !f.untaggedOnly &&
+        !f.familyOnly &&
+        !f.withPhotoOnly &&
+        !f.needsAttentionOnly &&
+        !f.strongOnly;
+    return onlyOneTag ? f.tags.first : null;
+  }
+
+  /// A bottom slider (shown when one cluster is focused) to scrub its rendering.
+  /// The label previews live while dragging; the override commits on release.
+  Widget _buildClusterRenderingSlider() {
+    final tag = _focusedClusterTag;
+    if (tag == null) return const SizedBox.shrink();
+    final isOrphans = _filter.untaggedOnly;
+    final layouts = [
+      for (final l in ClusterLayout.values)
+        if (!(isOrphans && l == ClusterLayout.figure)) l,
+    ];
+    final effective = effectiveClusterLayout(
+      tag: tag,
+      isOrphans: isOrphans,
+      overrides: _layoutOverrides,
+      randomize: kRandomizeConstellationLayouts,
+      runSeed: _runSeed,
+    );
+    final baseIndex = layouts.indexOf(effective).clamp(0, layouts.length - 1);
+    final value = (_renderSliderValue ?? baseIndex.toDouble())
+        .clamp(0, (layouts.length - 1).toDouble());
+    final shownLayout = layouts[value.round()];
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 100,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1a1a1a).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF333333)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome,
+                    color: Color(0xFF818cf8), size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$tag · ${clusterLayoutLabel(shownLayout)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _setClusterLayout(tag, null),
+                  child: const Text('Auto',
+                      style: TextStyle(color: Color(0xFF818cf8))),
+                ),
+                IconButton(
+                  tooltip: 'Clear focus',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => _filter = ContactFilter.none),
+                  icon: const Icon(Icons.close,
+                      color: Color(0xFF9ca3af), size: 18),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Previous rendering',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: value.round() > 0
+                      ? () => _stepClusterLayout(tag, layouts, -1)
+                      : null,
+                  icon: const Icon(Icons.chevron_left,
+                      color: Color(0xFF818cf8)),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: value.toDouble(),
+                    min: 0,
+                    max: (layouts.length - 1).toDouble(),
+                    divisions: layouts.length - 1,
+                    label: clusterLayoutLabel(shownLayout),
+                    activeColor: const Color(0xFF6366f1),
+                    // Apply the rendering live on each step (divisions keep
+                    // this to a handful of rebuilds), persisting only on
+                    // release — so you can scrub through all of them.
+                    onChanged: (v) {
+                      final layout = layouts[v.round()];
+                      setState(() {
+                        _renderSliderValue = v;
+                        if (_layoutOverrides[tag] != layout) {
+                          _layoutOverrides = {..._layoutOverrides, tag: layout};
+                        }
+                      });
+                    },
+                    onChangeEnd: (v) {
+                      _renderSliderValue = null;
+                      _setClusterLayout(tag, layouts[v.round()]);
+                    },
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Next rendering',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: value.round() < layouts.length - 1
+                      ? () => _stepClusterLayout(tag, layouts, 1)
+                      : null,
+                  icon: const Icon(Icons.chevron_right,
+                      color: Color(0xFF818cf8)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Steps the focused cluster's rendering one step ([delta] = ±1) through
+  /// [layouts] and commits it. Used by the slider's prev/next buttons.
+  void _stepClusterLayout(String tag, List<ClusterLayout> layouts, int delta) {
+    final effective = effectiveClusterLayout(
+      tag: tag,
+      isOrphans: _filter.untaggedOnly,
+      overrides: _layoutOverrides,
+      randomize: kRandomizeConstellationLayouts,
+      runSeed: _runSeed,
+    );
+    final current = _renderSliderValue?.round() ??
+        layouts.indexOf(effective).clamp(0, layouts.length - 1);
+    final next = (current + delta).clamp(0, layouts.length - 1);
+    if (next == current) return;
+    _renderSliderValue = null;
+    _setClusterLayout(tag, layouts[next]);
+  }
+
+  /// Sets (or clears, when [layout] is null) a cluster's rendering override and
+  /// persists it; the Mutuals graph rebuilds with the new layout.
+  void _setClusterLayout(String tag, ClusterLayout? layout) {
+    final next = {..._layoutOverrides};
+    if (layout == null) {
+      next.remove(tag);
+    } else {
+      next[tag] = layout;
+    }
+    setState(() => _layoutOverrides = next);
+    unawaited(_prefs.saveLayoutOverrides(next));
   }
 
   Widget _buildHeader() {

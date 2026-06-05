@@ -65,14 +65,41 @@ All in `lib/painters/graph_painter.dart` unless noted.
    gradient, tinted per star via a `ColorFilter` + canvas scale — no per-star
    shader/blur allocation.
 
-7. **Loose nodes on a 2D grid** (`constellation_layout.dart`). Contacts with no
-   linking tag (e.g. "Imported"-only) used to be scattered in a narrow tall
-   band, piling on top of each other (overdraw + visual mush). They're now laid
-   out on a √n jittered grid so thousands spread out evenly.
+7. **Loose nodes on an even disc** (`constellation_layout.dart`). Contacts with
+   no linking tag (e.g. "Imported"-only) form the "Orphans" group. They used to
+   pile into a narrow band; then a √n grid (square block); now an even
+   golden-angle ("sunflower") **disc** with light deterministic jitter, so a
+   1500-node untagged set spreads out as an organic cloud with no pile-up. Named
+   groups likewise spill overflow members onto a phyllotaxis spiral, and grid
+   cells are sized to the largest group so clusters never overlap. Each group
+   also exposes a `radius` so labels can sit *below* the cluster instead of in
+   its middle.
 
-8. **Labels are gated + capped.** Names appear only past `_labelScale` (1.6);
-   edge labels past `_edgeLabelScale` (1.25); both are viewport-culled and
-   their on-screen size is clamped.
+8. **Name labels are gated, capped, and cached** — this is what keeps zooming
+   smooth at 1500 nodes (`graph_painter.dart`):
+   - **Gated** by zoom: names appear only past `_labelScale` (1.6); edge labels
+     past their own threshold. Both are viewport-culled.
+   - **Capped per frame** to `_maxLabels` (80) via `_drawLabels`: candidates are
+     collected during the star pass, then only the most prominent (largest
+     on-screen) are drawn. So crossing the label threshold — when hundreds of
+     nodes can be on screen at once — never spawns hundreds of labels in one
+     frame. Zoom further into a small cluster and *every* visible node is
+     labelled (there are fewer than the cap).
+   - **Cached** layouts: laid-out `TextPainter`s are kept in a process-wide
+     `_labelPainterCache` keyed by `"name|fontSizePx"` (oldest-evicted at
+     `_labelCacheCap` = 600). Text *measurement* (`TextPainter.layout`) is the
+     expensive part; without the cache every visible node re-measured its name
+     every frame, so the moment a zoom crossed `_labelScale` the view stuttered.
+     Font size depends only on zoom, so it's uniform across a frame → near-100%
+     cache hits while panning/zooming at a fixed level.
+
+> **Why not just show every name, always?** With ~1500 nodes that means ~1500
+> `TextPainter.layout`s *per frame* (the painter repaints continuously) — it
+> would jank constantly, not just on zoom, and the names would overlap into an
+> unreadable mush at overview. The cap + cache instead make names appear
+> smoothly for the nodes you're actually looking at, with the work bounded
+> regardless of how many nodes exist. Raise `_maxLabels` if you want more on
+> screen at once; the cache keeps the cost low, but readability degrades first.
 
 ### Tags & linking note
 

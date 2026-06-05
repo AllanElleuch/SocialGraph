@@ -8,6 +8,17 @@ import '../services/relationship_strength.dart';
 import 'star_style.dart';
 import 'constellation_layout.dart';
 
+/// Process-wide cache of laid-out node-name labels, keyed by "name|fontSizePx".
+///
+/// Measuring text ([TextPainter.layout]) is the expensive part of drawing a
+/// name. Without caching, every visible node re-laid-out its label on every
+/// frame, so the moment a zoom crossed the label threshold the constellation
+/// view stuttered (hundreds of layouts per frame). This cache survives across
+/// painter instances and frames; entries are evicted oldest-first once
+/// [_labelCacheCap] is reached so memory stays bounded.
+final Map<String, TextPainter> _labelPainterCache = {};
+const int _labelCacheCap = 600;
+
 /// Base node radius (px) used when strength weighting is disabled or a contact
 /// has zero strength. Setting [kStrengthRadiusFactor] to 0 reproduces the
 /// original fixed-radius rendering exactly (every node drawn at this radius).
@@ -121,6 +132,13 @@ class GraphPainter extends CustomPainter {
 
   /// Show labels only past this on-screen zoom scale (keeps the far view clean).
   static const double _labelScale = 1.6;
+
+  /// Cap on name labels drawn per frame. Even when hundreds of nodes are on
+  /// screen at the label zoom threshold, only the most prominent get a name, so
+  /// crossing that threshold never spawns hundreds of [TextPainter]s at once
+  /// (the cause of the zoom stutter). When zoomed into a small cluster, far
+  /// fewer than this are visible, so every one is labelled.
+  static const int _maxLabels = 80;
 
   /// Level-of-detail thresholds (on-screen node radius, logical px):
   ///  - below [_pointPx]: a cheap point of light (no glow/disc/photo);
@@ -427,6 +445,11 @@ class GraphPainter extends CustomPainter {
     final fill = Paint()..style = PaintingStyle.fill;
     final stroke = Paint()..style = PaintingStyle.stroke;
 
+    // Name labels are collected, then capped to the most prominent on-screen
+    // nodes and drawn after the stars — so the count per frame is bounded.
+    final labelCandidates =
+        <({Offset center, double radius, double screenRadius, String name})>[];
+
     for (final node in nodes) {
       final center = Offset(node.x, node.y);
       if (cull != null && !cull.contains(center)) continue;
@@ -489,11 +512,46 @@ class GraphPainter extends CustomPainter {
         }
       }
 
-      // Labels fade in when zoomed in; hidden for dimmed (off-constellation)
-      // stars so the focused constellation reads clearly.
-      if (scale >= _labelScale && dim > 0.5) {
-        _drawLabel(canvas, node.name, center, radius, scale, dim);
+      // Labels show when zoomed in; hidden for dimmed (off-constellation) stars
+      // so the focused constellation reads clearly. Collected here, capped and
+      // drawn below.
+      if (scale >= _labelScale && dim > 0.5 && node.name.isNotEmpty) {
+        labelCandidates.add((
+          center: center,
+          radius: radius,
+          screenRadius: screenRadius,
+          name: node.name,
+        ));
       }
+    }
+
+    _drawLabels(canvas, labelCandidates, scale);
+  }
+
+  /// Draws name labels for [candidates], capped to the [_maxLabels] most
+  /// prominent (largest on screen) so a frame never lays out hundreds of
+  /// labels. Laid-out [TextPainter]s are cached across frames (see
+  /// [_cachedLabel]) so zooming/panning never re-measures the same text.
+  void _drawLabels(
+    Canvas canvas,
+    List<({Offset center, double radius, double screenRadius, String name})>
+        candidates,
+    double scale,
+  ) {
+    if (candidates.isEmpty) return;
+    if (candidates.length > _maxLabels) {
+      candidates.sort((a, b) => b.screenRadius.compareTo(a.screenRadius));
+      candidates.length = _maxLabels; // keep the biggest, drop tiny far ones
+    }
+    // Font size depends only on zoom, so it's uniform across this frame's
+    // labels — which maximises cache hits.
+    final fc = (scale * 10.0).clamp(15.0, 48.0) / scale;
+    for (final l in candidates) {
+      final tp = _cachedLabel(l.name, fc);
+      tp.paint(
+        canvas,
+        Offset(l.center.dx + l.radius + fc * 0.45, l.center.dy - fc / 2),
+      );
     }
   }
 
@@ -513,34 +571,40 @@ class GraphPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _drawLabel(Canvas canvas, String name, Offset center, double radius,
-      double scale, double dim) {
-    // The name grows as you zoom into a node (capped), and carries a soft
-    // shadow so it stays legible over the node's bright glow.
-    final onScreen = (scale * 10.0).clamp(15.0, 48.0);
-    final fc = onScreen / scale;
+  /// Returns a laid-out [TextPainter] for [name] at [fontSize], reusing a
+  /// cached one when available. Labels are only drawn for focused (non-dimmed)
+  /// stars, so the colour is constant and the cache key is just name + size.
+  TextPainter _cachedLabel(String name, double fontSize) {
+    final key = '$name|${fontSize.round()}';
+    final cached = _labelPainterCache[key];
+    if (cached != null) return cached;
+
     final tp = TextPainter(
       text: TextSpan(
         text: name,
         style: TextStyle(
-          color: const Color(0xFFF1F5FF)
-              .withValues(alpha: dim.clamp(0.0, 1.0)),
-          fontSize: fc,
+          color: const Color(0xFFF1F5FF),
+          fontSize: fontSize,
           fontFamily: 'Inter',
           fontWeight: FontWeight.w600,
-          letterSpacing: fc * 0.02,
+          letterSpacing: fontSize * 0.02,
           shadows: [
             Shadow(
-              color: const Color(0xFF000000)
-                  .withValues(alpha: (0.85 * dim).clamp(0.0, 1.0)),
-              blurRadius: fc * 0.5,
+              color: const Color(0xFF000000).withValues(alpha: 0.85),
+              blurRadius: fontSize * 0.5,
             ),
           ],
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, Offset(center.dx + radius + fc * 0.45, center.dy - fc / 2));
+
+    // Bound memory: evict the oldest entry once the cache is full.
+    if (_labelPainterCache.length >= _labelCacheCap) {
+      _labelPainterCache.remove(_labelPainterCache.keys.first);
+    }
+    _labelPainterCache[key] = tp;
+    return tp;
   }
 
   // Simplified Magma colorscale interpolation (time pivot only).

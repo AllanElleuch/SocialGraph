@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../models/contact.dart';
@@ -47,6 +50,10 @@ class _ContactFormState extends State<ContactForm> {
   late Set<String> _selectedConnections;
   int? _reminderCadenceDays;
 
+  /// Contact photo bytes (small thumbnail). Editable via the photo button.
+  Uint8List? _photoThumbnail;
+  final ImagePicker _imagePicker = ImagePicker();
+
   bool get _isEditMode => widget.existingContact != null;
 
   @override
@@ -61,8 +68,7 @@ class _ContactFormState extends State<ContactForm> {
     _notesController = TextEditingController(text: c?.notes ?? '');
     _socialControllers = {
       for (final platform in SocialPlatform.all)
-        platform.id:
-            TextEditingController(text: c?.socials[platform.id] ?? ''),
+        platform.id: TextEditingController(text: c?.socials[platform.id] ?? ''),
     };
     _tags = List<String>.from(c?.tags ?? []);
     _locationMet = c?.locationMet;
@@ -74,6 +80,7 @@ class _ContactFormState extends State<ContactForm> {
     _dateMet = c?.dateMet ?? (c == null ? DateTime.now() : null);
     _selectedConnections = Set<String>.from(c?.connections ?? []);
     _reminderCadenceDays = c?.reminderCadenceDays;
+    _photoThumbnail = c?.photoThumbnail;
   }
 
   @override
@@ -96,8 +103,9 @@ class _ContactFormState extends State<ContactForm> {
     // Collect non-empty social handles, normalized to bare handles.
     final socials = <String, String>{};
     for (final platform in SocialPlatform.all) {
-      final handle =
-          SocialPlatform.normalizeHandle(_socialControllers[platform.id]!.text);
+      final handle = SocialPlatform.normalizeHandle(
+        _socialControllers[platform.id]!.text,
+      );
       if (handle.isNotEmpty) socials[platform.id] = handle;
     }
 
@@ -123,8 +131,8 @@ class _ContactFormState extends State<ContactForm> {
       interactions: existing?.interactions ?? const [],
       updatedAt: DateTime.now(),
       socials: socials,
+      photoThumbnail: _photoThumbnail,
       // Preserve fields this form does not edit, so editing never drops them.
-      photoThumbnail: existing?.photoThumbnail,
       birthday: existing?.birthday,
       origin: existing?.origin,
     );
@@ -146,8 +154,7 @@ class _ContactFormState extends State<ContactForm> {
       lastDate: DateTime.now(),
       builder: (context, child) => Theme(
         data: ThemeData.dark().copyWith(
-          colorScheme:
-              const ColorScheme.dark(primary: Color(0xFF6366f1)),
+          colorScheme: const ColorScheme.dark(primary: Color(0xFF6366f1)),
         ),
         child: child!,
       ),
@@ -157,14 +164,149 @@ class _ContactFormState extends State<ContactForm> {
     }
   }
 
+  /// Picks a photo from [source], downscaling it to a small thumbnail so it
+  /// stays light to store and sync. Silently no-ops if the user cancels.
+  Future<void> _pickPhoto(ImageSource source) async {
+    try {
+      final file = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 75,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (mounted) setState(() => _photoThumbnail = bytes);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not add photo: $e')));
+      }
+    }
+  }
+
+  void _showPhotoOptions() {
+    final hasPhoto = _photoThumbnail != null && _photoThumbnail!.isNotEmpty;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1a1a1a),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(
+                Icons.photo_camera_outlined,
+                color: Color(0xFF9ca3af),
+              ),
+              title: const Text(
+                'Take photo',
+                style: TextStyle(color: Color(0xFFe2e8f0)),
+              ),
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                _pickPhoto(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.photo_library_outlined,
+                color: Color(0xFF9ca3af),
+              ),
+              title: const Text(
+                'Choose from library',
+                style: TextStyle(color: Color(0xFFe2e8f0)),
+              ),
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                _pickPhoto(ImageSource.gallery);
+              },
+            ),
+            if (hasPhoto)
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: Color(0xFFef4444),
+                ),
+                title: const Text(
+                  'Remove photo',
+                  style: TextStyle(color: Color(0xFFef4444)),
+                ),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  setState(() => _photoThumbnail = null);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Circular avatar + button to add / change / remove the contact's photo.
+  Widget _buildPhotoField() {
+    final hasPhoto = _photoThumbnail != null && _photoThumbnail!.isNotEmpty;
+    return Center(
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: _showPhotoOptions,
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: const Color(0xFF111111),
+                  backgroundImage: hasPhoto
+                      ? MemoryImage(_photoThumbnail!)
+                      : null,
+                  child: hasPhoto
+                      ? null
+                      : const Icon(
+                          Icons.person_outline,
+                          color: Color(0xFF6b7280),
+                          size: 36,
+                        ),
+                ),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF4f46e5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.photo_camera,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextButton(
+            onPressed: _showPhotoOptions,
+            child: Text(
+              hasPhoto ? 'Change photo' : 'Add photo',
+              style: const TextStyle(color: Color(0xFF818cf8), fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   InputDecoration _fieldDecoration({String? hintText}) {
     return InputDecoration(
       filled: true,
       fillColor: const Color(0xFF111111),
       hintText: hintText,
       hintStyle: const TextStyle(color: Color(0xFF6b7280)),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: Color(0xFF333333)),
@@ -236,276 +378,295 @@ class _ContactFormState extends State<ContactForm> {
     // so the form fills whatever width it is given rather than forcing a fixed
     // size that would overflow on narrow screens.
     return Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1a1a1a),
-          border: Border.all(color: const Color(0xFF333333)),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.5),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _isEditMode ? 'EDIT CONTACT' : 'ADD CONTACT',
-                      style: const TextStyle(
-                        color: Color(0xFF6b7280),
-                        fontSize: 10,
-                        letterSpacing: 3,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    InkWell(
-                      onTap: widget.onCancel,
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(Icons.close,
-                            color: Color(0xFF9ca3af), size: 20),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // First Name
-                _fieldLabel('First Name'),
-                TextFormField(
-                  controller: _firstNameController,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'First name is required';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Last Name
-                _fieldLabel('Last Name'),
-                TextFormField(
-                  controller: _lastNameController,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Last name is required';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Tags
-                _fieldLabel('Tags'),
-                TagInput(
-                  initialTags: widget.existingContact?.tags ?? [],
-                  onTagsChanged: (tags) => _tags = tags,
-                  tagCounts: tagUsageCounts(widget.allContacts),
-                ),
-                const SizedBox(height: 16),
-
-                // Location Met
-                AddressField(
-                  label: 'Location Met',
-                  showCurrentLocationButton: true,
-                  initialValue: widget.existingContact?.locationMet,
-                  onChanged: (result) {
-                    _locationMet = result.address;
-                    _locationLat = result.lat;
-                    _locationLng = result.lng;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Workplace
-                _fieldLabel('Workplace'),
-                TextFormField(
-                  controller: _workplaceController,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(),
-                ),
-                const SizedBox(height: 16),
-
-                // Phone
-                _fieldLabel('Phone'),
-                TextFormField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(hintText: '+1 555 123 4567'),
-                ),
-                const SizedBox(height: 16),
-
-                // Email
-                _fieldLabel('Email'),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(hintText: 'name@example.com'),
-                  validator: _validateEmail,
-                ),
-                const SizedBox(height: 16),
-
-                // Social media
-                _fieldLabel('Social Media'),
-                const SizedBox(height: 2),
-                ...SocialPlatform.all.map(_socialField),
-                const SizedBox(height: 4),
-
-                // Notes
-                _fieldLabel('Notes'),
-                TextFormField(
-                  controller: _notesController,
-                  maxLines: 3,
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration:
-                      _fieldDecoration(hintText: 'How you met, context, reminders…'),
-                ),
-                const SizedBox(height: 16),
-
-                // Stay-in-touch cadence
-                _fieldLabel('Stay in touch'),
-                DropdownButtonFormField<int?>(
-                  initialValue: _reminderCadenceDays,
-                  dropdownColor: const Color(0xFF1a1a1a),
-                  style: const TextStyle(color: Color(0xFFe2e8f0)),
-                  decoration: _fieldDecoration(),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text('Default (by tag)')),
-                    DropdownMenuItem(value: 7, child: Text('Weekly')),
-                    DropdownMenuItem(value: 30, child: Text('Monthly')),
-                    DropdownMenuItem(value: 90, child: Text('Quarterly')),
-                    DropdownMenuItem(value: 0, child: Text('Off')),
-                  ],
-                  onChanged: (v) => setState(() => _reminderCadenceDays = v),
-                ),
-                const SizedBox(height: 16),
-
-                // Home Address
-                AddressField(
-                  label: 'Home Address',
-                  showCurrentLocationButton: false,
-                  initialValue: widget.existingContact?.homeAddress,
-                  onChanged: (result) {
-                    _homeAddress = result.address;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Date Met
-                _fieldLabel('Date Met'),
-                GestureDetector(
-                  onTap: _pickDate,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF111111),
-                      border:
-                          Border.all(color: const Color(0xFF333333)),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _dateMet != null
-                                ? DateFormat.yMMMd().format(_dateMet!)
-                                : 'Unknown — tap to set',
-                            style: TextStyle(
-                              color: _dateMet != null
-                                  ? const Color(0xFFe2e8f0)
-                                  : const Color(0xFF6b7280),
-                            ),
-                          ),
-                        ),
-                        if (_dateMet != null)
-                          GestureDetector(
-                            onTap: () => setState(() => _dateMet = null),
-                            child: const Icon(Icons.clear,
-                                color: Color(0xFF6b7280), size: 16),
-                          ),
-                      ],
+      decoration: BoxDecoration(
+        color: const Color(0xFF1a1a1a),
+        border: Border.all(color: const Color(0xFF333333)),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _isEditMode ? 'EDIT CONTACT' : 'ADD CONTACT',
+                    style: const TextStyle(
+                      color: Color(0xFF6b7280),
+                      fontSize: 10,
+                      letterSpacing: 3,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                // Connections — search-as-you-type instead of one chip per
-                // contact, so this scales to thousands of contacts.
-                _fieldLabel('Connections'),
-                ConnectionPicker(
-                  candidates: widget.allContacts
-                      .where((c) =>
-                          !_isEditMode || c.id != widget.existingContact!.id)
-                      .toList(),
-                  initialSelectedIds: _selectedConnections,
-                  onChanged: (ids) => _selectedConnections = ids,
-                ),
-                const SizedBox(height: 24),
-
-                // Footer buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: widget.onCancel,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(
-                              color: Color(0xFF333333)),
-                          foregroundColor: const Color(0xFF9ca3af),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text('Cancel'),
+                  InkWell(
+                    onTap: widget.onCancel,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Color(0xFF9ca3af),
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _onSave,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4f46e5),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Photo
+              _buildPhotoField(),
+              const SizedBox(height: 16),
+
+              // First Name
+              _fieldLabel('First Name'),
+              TextFormField(
+                controller: _firstNameController,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'First name is required';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Last Name
+              _fieldLabel('Last Name'),
+              TextFormField(
+                controller: _lastNameController,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Last name is required';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Tags
+              _fieldLabel('Tags'),
+              TagInput(
+                initialTags: widget.existingContact?.tags ?? [],
+                onTagsChanged: (tags) => _tags = tags,
+                tagCounts: tagUsageCounts(widget.allContacts),
+              ),
+              const SizedBox(height: 16),
+
+              // Location Met
+              AddressField(
+                label: 'Location Met',
+                showCurrentLocationButton: true,
+                initialValue: widget.existingContact?.locationMet,
+                onChanged: (result) {
+                  _locationMet = result.address;
+                  _locationLat = result.lat;
+                  _locationLng = result.lng;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Workplace
+              _fieldLabel('Workplace'),
+              TextFormField(
+                controller: _workplaceController,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(),
+              ),
+              const SizedBox(height: 16),
+
+              // Phone
+              _fieldLabel('Phone'),
+              TextFormField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(hintText: '+1 555 123 4567'),
+              ),
+              const SizedBox(height: 16),
+
+              // Email
+              _fieldLabel('Email'),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(hintText: 'name@example.com'),
+                validator: _validateEmail,
+              ),
+              const SizedBox(height: 16),
+
+              // Social media
+              _fieldLabel('Social Media'),
+              const SizedBox(height: 2),
+              ...SocialPlatform.all.map(_socialField),
+              const SizedBox(height: 4),
+
+              // Notes
+              _fieldLabel('Notes'),
+              TextFormField(
+                controller: _notesController,
+                maxLines: 3,
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(
+                  hintText: 'How you met, context, reminders…',
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Stay-in-touch cadence
+              _fieldLabel('Stay in touch'),
+              DropdownButtonFormField<int?>(
+                initialValue: _reminderCadenceDays,
+                dropdownColor: const Color(0xFF1a1a1a),
+                style: const TextStyle(color: Color(0xFFe2e8f0)),
+                decoration: _fieldDecoration(),
+                items: const [
+                  DropdownMenuItem(
+                    value: null,
+                    child: Text('Default (by tag)'),
+                  ),
+                  DropdownMenuItem(value: 7, child: Text('Weekly')),
+                  DropdownMenuItem(value: 30, child: Text('Monthly')),
+                  DropdownMenuItem(value: 90, child: Text('Quarterly')),
+                  DropdownMenuItem(value: 0, child: Text('Off')),
+                ],
+                onChanged: (v) => setState(() => _reminderCadenceDays = v),
+              ),
+              const SizedBox(height: 16),
+
+              // Home Address
+              AddressField(
+                label: 'Home Address',
+                showCurrentLocationButton: false,
+                initialValue: widget.existingContact?.homeAddress,
+                onChanged: (result) {
+                  _homeAddress = result.address;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Date Met
+              _fieldLabel('Date Met'),
+              GestureDetector(
+                onTap: _pickDate,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    border: Border.all(color: const Color(0xFF333333)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _dateMet != null
+                              ? DateFormat.yMMMd().format(_dateMet!)
+                              : 'Unknown — tap to set',
+                          style: TextStyle(
+                            color: _dateMet != null
+                                ? const Color(0xFFe2e8f0)
+                                : const Color(0xFF6b7280),
                           ),
                         ),
-                        child: const Text('Save'),
                       ),
-                    ),
-                  ],
+                      if (_dateMet != null)
+                        GestureDetector(
+                          onTap: () => setState(() => _dateMet = null),
+                          child: const Icon(
+                            Icons.clear,
+                            color: Color(0xFF6b7280),
+                            size: 16,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+
+              // Connections — search-as-you-type instead of one chip per
+              // contact, so this scales to thousands of contacts.
+              _fieldLabel('Connections'),
+              ConnectionPicker(
+                candidates: widget.allContacts
+                    .where(
+                      (c) => !_isEditMode || c.id != widget.existingContact!.id,
+                    )
+                    .toList(),
+                initialSelectedIds: _selectedConnections,
+                onChanged: (ids) => _selectedConnections = ids,
+              ),
+              const SizedBox(height: 24),
+
+              // Footer buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: widget.onCancel,
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF333333)),
+                        foregroundColor: const Color(0xFF9ca3af),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _onSave,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4f46e5),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Save'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }
