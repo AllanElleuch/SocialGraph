@@ -20,6 +20,7 @@ enum ClusterLayout {
   randomDisc, // uniform random scatter in a disc
   randomWalk, // a wandering star-trail (bounded)
   nebula, // a few sub-clusters → lumpy cloud
+  sharingan, // Naruto's eye: pupil + 3 tomoe + iris ring
 }
 
 /// Human label for a layout (shown in the Constellations view).
@@ -49,6 +50,8 @@ String clusterLayoutLabel(ClusterLayout l) {
       return 'Trail';
     case ClusterLayout.nebula:
       return 'Nebula';
+    case ClusterLayout.sharingan:
+      return 'Sharingan';
   }
 }
 
@@ -124,6 +127,8 @@ List<Offset> generateClusterOffsets(
       return _randomWalk(count, spacing, rng);
     case ClusterLayout.nebula:
       return _nebula(count, spacing, rng);
+    case ClusterLayout.sharingan:
+      return _sharingan(count, spacing, rng);
   }
 }
 
@@ -278,4 +283,59 @@ List<Offset> _nebula(int n, double s, math.Random rng) {
           Offset.fromDirection(
               rng.nextDouble() * 2 * math.pi, blob * math.sqrt(rng.nextDouble())),
   ];
+}
+
+List<Offset> _sharingan(int n, double s, math.Random rng) {
+  // Naruto's Sharingan eye: a dense central pupil, three comma-shaped tomoe
+  // spaced 120° apart and all curling the same way (a frozen spin), wrapped by
+  // a faint iris ring. Star budget: 14% pupil, 22% iris ring, the rest split
+  // across the three tomoe (each a round head + a tapering tail along the orbit).
+  final maxR = s * math.sqrt(n.toDouble());
+  final out = <Offset>[];
+
+  final pupilN = (n * 0.14).round();
+  final ringN = (n * 0.22).round();
+  final tomoeTotal = math.max(0, n - pupilN - ringN);
+  final perTomoe = (tomoeTotal / 3).ceil();
+
+  // Pupil: a small filled disc at the very center.
+  final pupilR = maxR * 0.16;
+  for (var k = 0; k < pupilN && out.length < n; k++) {
+    out.add(Offset.fromDirection(
+        rng.nextDouble() * 2 * math.pi, pupilR * math.sqrt(rng.nextDouble())));
+  }
+
+  // Iris: a thin ring at the rim.
+  for (var k = 0; k < ringN && out.length < n; k++) {
+    final a = 2 * math.pi * k / math.max(1, ringN);
+    out.add(Offset.fromDirection(a, maxR + (rng.nextDouble() - 0.5) * s * 0.4));
+  }
+
+  // Three tomoe, each a round head on an orbit circle plus a tail that tapers
+  // as it sweeps along that circle. All tails sweep the same way → the eye looks
+  // mid-spin. The orbit sits between the pupil and the iris.
+  final orbit = maxR * 0.55;
+  final headR = maxR * 0.17;
+  for (var t = 0; t < 3 && out.length < n; t++) {
+    final base = t * 2 * math.pi / 3 - math.pi / 2; // 120° apart, one on top
+    final headC = Offset.fromDirection(base, orbit);
+    final headN = (perTomoe * 0.6).round();
+    final tailN = perTomoe - headN;
+    // Head: a filled disc.
+    for (var k = 0; k < headN && out.length < n; k++) {
+      out.add(headC +
+          Offset.fromDirection(
+              rng.nextDouble() * 2 * math.pi, headR * math.sqrt(rng.nextDouble())));
+    }
+    // Tail: follows the orbit circle from the head, thinning to a point.
+    for (var k = 0; k < tailN && out.length < n; k++) {
+      final f = (k + 0.5) / tailN; // 0 (at head) .. 1 (tip)
+      final ang = base + f * 1.2; // sweep ~69° along the orbit
+      final spine = Offset.fromDirection(ang, orbit);
+      final thick = headR * 0.7 * (1 - f); // taper to a point
+      final perp = (rng.nextDouble() - rng.nextDouble()) * thick;
+      out.add(spine + Offset.fromDirection(ang + math.pi / 2, perp));
+    }
+  }
+  return out;
 }
