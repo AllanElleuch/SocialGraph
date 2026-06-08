@@ -15,7 +15,8 @@ enum ClusterLayout {
   jitterGrid, // square lattice + jitter
   rotatedGrid, // square lattice rotated by a random angle
   archimedean, // single Archimedean spiral arm
-  galaxy, // 2–4 swirling spiral arms
+  galaxy, // 2–4 sweeping spiral arms
+  pinwheel, // 2–4 wispy swirling arms, dense core (the original galaxy look)
   randomDisc, // uniform random scatter in a disc
   randomWalk, // a wandering star-trail (bounded)
   nebula, // a few sub-clusters → lumpy cloud
@@ -40,6 +41,8 @@ String clusterLayoutLabel(ClusterLayout l) {
       return 'Spiral';
     case ClusterLayout.galaxy:
       return 'Galaxy';
+    case ClusterLayout.pinwheel:
+      return 'Pinwheel';
     case ClusterLayout.randomDisc:
       return 'Scatter';
     case ClusterLayout.randomWalk:
@@ -113,6 +116,8 @@ List<Offset> generateClusterOffsets(
       return _archimedean(count, spacing);
     case ClusterLayout.galaxy:
       return _galaxy(count, spacing, rng);
+    case ClusterLayout.pinwheel:
+      return _pinwheel(count, spacing, rng);
     case ClusterLayout.randomDisc:
       return _randomDisc(count, spacing, rng);
     case ClusterLayout.randomWalk:
@@ -187,24 +192,48 @@ List<Offset> _archimedean(int n, double s) {
 }
 
 List<Offset> _galaxy(int n, double s, math.Random rng) {
+  // Sweeping spiral arms. Each of the 2–4 arms winds ~1 turn out to ~s·√n, with
+  // its stars spread evenly by area along the arm (so density stays even) plus a
+  // little arm thickness that widens outward and a touch of jitter — so it reads
+  // as a galaxy with distinct sweeping arms rather than a tightly-packed disc.
   final arms = 2 + rng.nextInt(3); // 2..4 arms
   final perArm = (n / arms).ceil();
-  // Each arm is an Archimedean spiral with turn spacing s*arms, so interleaving
-  // `arms` of them leaves an even ~s gap between adjacent arms — and stepping ~s
-  // of arc length along each arm keeps neighbours ~s apart. Uniform spacing ⇒
-  // no overlap (same density as the sunflower disc).
-  final a = s * arms / (2 * math.pi);
+  final maxR = s * math.sqrt(n.toDouble());
+  final turns = 0.9 + rng.nextDouble() * 0.7; // 0.9..1.6 sweeping turns
   final out = <Offset>[];
   for (var arm = 0; arm < arms && out.length < n; arm++) {
     final armAngle = arm * 2 * math.pi / arms;
-    var theta = 2 * math.pi; // start a turn out so the core isn't crowded
     for (var j = 0; j < perArm && out.length < n; j++) {
-      final r = a * theta;
-      out.add(Offset.fromDirection(armAngle + theta, r));
-      theta += s / math.max(r, s); // ≈ constant arc-length step
+      final f = (j + 0.5) / perArm; // 0..1 along the arm (core → rim)
+      final r = maxR * math.sqrt(f); // even density by area
+      final angle = armAngle + turns * 2 * math.pi * f; // winds as it sweeps out
+      // Triangular perpendicular jitter gives the arm a thickness that widens
+      // toward the rim; a small radial wobble keeps it from looking mechanical.
+      final width = s * (0.5 + 0.9 * f);
+      final perp = (rng.nextDouble() - rng.nextDouble()) * width;
+      final wobble = (rng.nextDouble() - 0.5) * s * 0.6;
+      out.add(Offset.fromDirection(angle, r + wobble) +
+          Offset.fromDirection(angle + math.pi / 2, perp));
     }
   }
   return out;
+}
+
+List<Offset> _pinwheel(int n, double s, math.Random rng) {
+  // The original galaxy look: 2–4 arms that bunch densely near the core and fan
+  // out (radius ∝ √k) with a light swirl and per-star jitter, giving organic,
+  // wispy sweeping arms (~½ turn each) rather than an evenly-packed disc.
+  final arms = 2 + rng.nextInt(3); // 2..4 arms
+  final swirl = 0.12 + rng.nextDouble() * 0.10;
+  return [
+    for (var k = 0; k < n; k++)
+      Offset.fromDirection(
+        (k % arms) * 2 * math.pi / arms +
+            swirl * math.sqrt(k.toDouble()) +
+            (rng.nextDouble() - 0.5) * 0.25,
+        s * math.sqrt(k + 1.0),
+      ),
+  ];
 }
 
 List<Offset> _randomDisc(int n, double s, math.Random rng) {
